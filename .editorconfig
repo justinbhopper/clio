@@ -1,0 +1,32 @@
+# Suppress: EC103
+root = true
+
+# Default settings for all files, except as otherwise noted.
+[*]
+charset = utf-8
+end_of_line = lf
+indent_size = 2
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Per coding standards, these are the defined files that use 4-space indent...
+[*.{cs,sql,liquid}]
+end_of_line = crlf
+indent_size = 4
+
+# These generally need to look right in Notepad...
+[*.{cmd,bat,ps1,vbs,hta,ini,reg}]
+end_of_line = crlf
+
+# Visual studio really doesn't like LF endings in project files...
+[*.{sln,proj,csproj,vbproj,wixproj}]
+end_of_line = crlf
+
+# Markdown assigns significance to trailing whitespace...
+[*.md]
+trim_trailing_whitespace = false
+
+# Makefiles don't work if you don't use tabs...
+[Makefile]
+indent_style = tab

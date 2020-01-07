@@ -1,0 +1,38 @@
+<Project>
+  <!-- This file is automatically included in every project in a subdirectory -->
+  <PropertyGroup>
+    <LangVersion>8.0</LangVersion>
+  </PropertyGroup>
+  <PropertyGroup>
+    <Description>RH.CosmosBackup</Description>
+    <Company>Remarkable Health, LLC.</Company>
+    <Product>Cosmos Backup [Remarkable Health - Internal]</Product>
+    <Copyright>Copyright © Remarkable Health, LLC. 2019</Copyright>
+    <Version>0.0.1</Version>
+    <PackageVersion>0.0.1</PackageVersion>
+    <FileVersion>0.0.1</FileVersion>
+    <AssemblyVersion>0.0.1</AssemblyVersion>
+    <InformationalVersion>0.0.1</InformationalVersion>
+    <RepositoryUrl>https://github.com/remarkable-health/TBD.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>nps dotnet</PackageTags>
+    <PackageProjectUrl>https://github.com/remarkable-health/TBD</PackageProjectUrl>
+  </PropertyGroup>
+  <PropertyGroup>
+    <MvcRazorCompileOnPublish>true</MvcRazorCompileOnPublish>
+    <PreserveCompilationContext>true</PreserveCompilationContext>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <AspNetCoreHostingModel>InProcess</AspNetCoreHostingModel>
+  </PropertyGroup>
+  <PropertyGroup>
+    <!-- Optional: Publish the repository URL in the built .nupkg (in the NuSpec <Repository> element) -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+
+    <!-- Optional: Embed source files that are not tracked by the source control manager in the PDB -->
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+
+    <!-- Optional: Build symbol package (.snupkg) to distribute the PDB containing Source Link -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+</Project>
