@@ -2,8 +2,14 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using RH.Clio.Cosmos;
 using RH.Clio.Snapshots.IO;
+using Serilog;
+using Serilog.Events;
+using Serilog.Extensions.Logging;
 
 namespace RH.Clio
 {
@@ -11,6 +17,26 @@ namespace RH.Clio
     {
         public static async Task Main()
         {
+            var seriLogger = new LoggerConfiguration()
+                .MinimumLevel.Verbose()
+                .MinimumLevel.Override("Microsoft", LogEventLevel.Verbose)
+                .Enrich.FromLogContext()
+                .WriteTo.Console()
+                .CreateLogger();
+
+            var services = new ServiceCollection()
+                .AddLogging(builder =>
+                {
+                    builder
+                        .AddSerilog(dispose: true)
+                        .SetMinimumLevel(LogLevel.Trace);
+                })
+                .AddSingleton<ILoggerFactory>(services => new SerilogLoggerFactory(seriLogger, true))
+                .BuildServiceProvider();
+
+            var loggerFactory = services.GetRequiredService<ILoggerFactory>();
+            var logger = loggerFactory.CreateLogger<Program>();
+
             var host = "https://localhost:8081";
             var authKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
             var cosmosClient = new CosmosClient(host, authKey);
@@ -23,8 +49,13 @@ namespace RH.Clio
 
             var sourceContainer = database.GetContainer(sourceContainerName);
 
+            // Should we own the lease container?  Leaving it around sometimes seems to cause issues with future runs...
+            await database.GetContainer(leaseContainerName).DeleteContainerIfExistsAsync();
+
             try
             {
+                logger.LogDebug("Starting snapshot...");
+
                 var leaseContainerProperties = new ContainerProperties(leaseContainerName, "/id");
                 var leaseContainer = await database.CreateContainerIfNotExistsAsync(leaseContainerProperties, throughput: 400);
 
@@ -52,7 +83,7 @@ namespace RH.Clio
             var sourceContainerDetails = await sourceContainer.ReadContainerAsync();
             var destinationContainerProperties = new ContainerProperties(destinationContainerName, sourceContainerDetails.Resource.PartitionKeyPath);
             var destinationContainer = await database.CreateContainerIfNotExistsAsync(destinationContainerProperties);
-            var containerWriter = new ContainerWriter(destinationContainer);
+            var containerWriter = new ContainerWriter(destinationContainer, loggerFactory.CreateLogger<ContainerWriter>());
 
             using (var snapshotStream = File.Open(@"f:\snapshot.json", FileMode.Open, FileAccess.Read, FileShare.Read))
             using (var changeFeedStream = File.Open(@"f:\changefeed.json", FileMode.Open, FileAccess.Read, FileShare.Read))

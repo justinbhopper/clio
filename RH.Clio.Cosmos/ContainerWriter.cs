@@ -46,7 +46,7 @@ namespace RH.Clio.Cosmos
 
                 var response = await _destination.UpsertItemStreamAsync(stream, partitionKey, cancellationToken: cancellationToken);
 
-                _logger.LogTrace("Inserted document, cost {requestCharge} RUs.");
+                _logger.LogTrace("Inserted document, cost {requestCharge} RUs.", response.Headers.RequestCharge);
             }
 
             string GetPartitionKey(JObject document)
