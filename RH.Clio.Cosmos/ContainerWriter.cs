@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -24,7 +25,7 @@ namespace RH.Clio.Cosmos
             _logger = logger;
         }
 
-        public async Task RestoreAsync(IAsyncEnumerable<JObject> documents, CancellationToken cancellationToken = default)
+        public async Task RestoreAsync(IAsyncEnumerable<JObject> documents, bool concurrent, CancellationToken cancellationToken = default)
         {
             var container = await _destination.ReadContainerAsync(cancellationToken: cancellationToken);
             var partitionKeyPath = container.Resource.PartitionKeyPath?
@@ -32,11 +33,13 @@ namespace RH.Clio.Cosmos
                 .Where(s => !string.IsNullOrEmpty(s))
                 .ToList() ?? new List<string>();
 
+            var tasks = new List<Task>();
+
+            // TODO: Create batches or producer/consumer here to prevent flooding memory with tasks
+
             await foreach (var document in documents.WithCancellation(cancellationToken))
             {
                 var json = document.ToString(Formatting.None);
-
-                using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
 
                 var partitionKeyValue = GetPartitionKey(document);
 
@@ -44,10 +47,29 @@ namespace RH.Clio.Cosmos
                     ? new PartitionKey(partitionKeyValue)
                     : PartitionKey.None;
 
-                var response = await _destination.UpsertItemStreamAsync(stream, partitionKey, cancellationToken: cancellationToken);
+                // Queue up inserts to run concurrently to take advantage of bulk execution support
+                var task = Task.Run(async () =>
+                {
+                    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+                    var response = await _destination.UpsertItemStreamAsync(stream, partitionKey, cancellationToken: cancellationToken);
 
-                _logger.LogTrace("Inserted document, cost {requestCharge} RUs.", response.Headers.RequestCharge);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _logger.LogError("Failed to insert document, received status code {statusCode}", response.StatusCode);
+                    }
+                    else
+                    {
+                        _logger.LogTrace("Inserted document, cost {requestCharge} RUs.", response.Headers.RequestCharge);
+                    }
+                });
+
+                tasks.Add(task);
+
+                if (!concurrent)
+                    await task;
             }
+
+            await Task.WhenAll(tasks);
 
             string GetPartitionKey(JObject document)
             {
@@ -69,4 +91,21 @@ namespace RH.Clio.Cosmos
             }
         }
     }
+    /*
+    internal interface IDocumentWriter
+    {
+        Task UpsertDocumentAsync(JObject document, CancellationToken cancellationToken = default);
+    }
+
+    internal class DocumentWriter : IDocumentWriter
+    {
+        private IList<string>? _partitionKeyPaths;
+
+        public DocumentWriter(Container destinationContainer)
+        {
+
+        }
+
+        private IList<string> 
+    }*/
 }

@@ -9,7 +9,7 @@ namespace Microsoft.Azure.Cosmos
         {
             try
             {
-                await container.DeleteContainerAsync(cancellationToken: cancellationToken);
+                using (await container.DeleteContainerStreamAsync(cancellationToken: cancellationToken)) { }
             }
             catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
             {

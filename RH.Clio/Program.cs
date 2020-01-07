@@ -1,14 +1,14 @@
+using System;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RH.Clio.Cosmos;
 using RH.Clio.Snapshots.IO;
 using Serilog;
-using Serilog.Events;
 using Serilog.Extensions.Logging;
 
 namespace RH.Clio
@@ -18,8 +18,7 @@ namespace RH.Clio
         public static async Task Main()
         {
             var seriLogger = new LoggerConfiguration()
-                .MinimumLevel.Verbose()
-                .MinimumLevel.Override("Microsoft", LogEventLevel.Verbose)
+                .MinimumLevel.Debug()
                 .Enrich.FromLogContext()
                 .WriteTo.Console()
                 .CreateLogger();
@@ -35,26 +34,43 @@ namespace RH.Clio
                 .BuildServiceProvider();
 
             var loggerFactory = services.GetRequiredService<ILoggerFactory>();
-            var logger = loggerFactory.CreateLogger<Program>();
 
-            var host = "https://localhost:8081";
-            var authKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
-            var cosmosClient = new CosmosClient(host, authKey);
+            var cosmosClient = CreateClient(false);
 
             var databaseName = "Practice-0000000000";
             var sourceContainerName = "Resources";
             var destinationContainerName = "Restored";
-            var leaseContainerName = "Resources-lease";
+
+            //await BackupAsync(databaseName, sourceContainerName, true, loggerFactory);
+            await BackupAsync(databaseName, sourceContainerName, false, loggerFactory);
+            await RestoreAsync(databaseName, sourceContainerName, destinationContainerName, true, loggerFactory);
+            //await RestoreAsync(databaseName, sourceContainerName, destinationContainerName, false, loggerFactory);
+        }
+
+        private static async Task BackupAsync(
+            string databaseName,
+            string sourceContainerName,
+            bool concurrent,
+            ILoggerFactory loggerFactory)
+        {
+            var logger = loggerFactory.CreateLogger<Program>();
+
+            var cosmosClient = CreateClient(concurrent);
             var database = cosmosClient.GetDatabase(databaseName);
+            var leaseContainerName = "Resources-lease";
 
             var sourceContainer = database.GetContainer(sourceContainerName);
 
             // Should we own the lease container?  Leaving it around sometimes seems to cause issues with future runs...
             await database.GetContainer(leaseContainerName).DeleteContainerIfExistsAsync();
 
+            var stopwatch = new Stopwatch();
+
             try
             {
-                logger.LogDebug("Starting snapshot...");
+                stopwatch.Start();
+
+                logger.LogInformation("Taking snapshot...");
 
                 var leaseContainerProperties = new ContainerProperties(leaseContainerName, "/id");
                 var leaseContainer = await database.CreateContainerIfNotExistsAsync(leaseContainerProperties, throughput: 400);
@@ -72,18 +88,38 @@ namespace RH.Clio
                 await processor.StartAsync();
 
                 await processor.WaitAsync();
+
+                logger.LogInformation("Snapshot took {timeMs}ms to complete ({concurrent}).", stopwatch.ElapsedMilliseconds, concurrent ? "concurrent" : "sequence");
             }
             finally
             {
                 await database.GetContainer(leaseContainerName).DeleteContainerIfExistsAsync();
             }
+        }
+
+        private static async Task RestoreAsync(
+            string databaseName,
+            string sourceContainerName,
+            string destinationContainerName,
+            bool concurrent,
+            ILoggerFactory loggerFactory)
+        {
+            var cosmosClient = CreateClient(concurrent);
+            var database = cosmosClient.GetDatabase(databaseName);
 
             await database.GetContainer(destinationContainerName).DeleteContainerIfExistsAsync();
 
+            var sourceContainer = database.GetContainer(sourceContainerName);
             var sourceContainerDetails = await sourceContainer.ReadContainerAsync();
             var destinationContainerProperties = new ContainerProperties(destinationContainerName, sourceContainerDetails.Resource.PartitionKeyPath);
             var destinationContainer = await database.CreateContainerIfNotExistsAsync(destinationContainerProperties);
             var containerWriter = new ContainerWriter(destinationContainer, loggerFactory.CreateLogger<ContainerWriter>());
+
+            var logger = loggerFactory.CreateLogger<Program>();
+            logger.LogInformation("Restoring snapshot...");
+
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
 
             using (var snapshotStream = File.Open(@"f:\snapshot.json", FileMode.Open, FileAccess.Read, FileShare.Read))
             using (var changeFeedStream = File.Open(@"f:\changefeed.json", FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -92,8 +128,23 @@ namespace RH.Clio
                 using var changeFeedStreamReader = new StreamReader(changeFeedStream, Encoding.UTF8);
                 var snapshotReader = new StreamSnapshotReader(snapshotStreamReader, changeFeedStreamReader);
 
-                await containerWriter.RestoreAsync(snapshotReader);
+                await containerWriter.RestoreAsync(snapshotReader, concurrent);
             }
+
+            logger.LogInformation("Restore took {timeMs}ms to complete ({concurrent}).", stopwatch.ElapsedMilliseconds, concurrent ? "concurrent" : "sequence");
+        }
+
+        private static CosmosClient CreateClient(bool allowBulkExecution)
+        {
+            var host = "https://localhost:8081";
+            var authKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
+            return new CosmosClient(host, authKey, new CosmosClientOptions
+            {
+                AllowBulkExecution = allowBulkExecution,
+                ConsistencyLevel = ConsistencyLevel.Eventual,
+                MaxRetryWaitTimeOnRateLimitedRequests = TimeSpan.FromSeconds(30),
+                MaxRetryAttemptsOnRateLimitedRequests = 3
+            });
         }
     }
 }
