@@ -1,10 +1,10 @@
-using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Dataflow;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -12,20 +12,20 @@ using Newtonsoft.Json.Linq;
 
 namespace RH.Clio.Cosmos
 {
-    public class ContainerWriter : IContainerWriter
+    public class ConcurrentContainerWriter : IContainerWriter
     {
         private readonly Container _destination;
-        private readonly ILogger<ContainerWriter> _logger;
+        private readonly ILogger<ConcurrentContainerWriter> _logger;
 
-        public ContainerWriter(
+        public ConcurrentContainerWriter(
             Container destination,
-            ILogger<ContainerWriter> logger)
+            ILogger<ConcurrentContainerWriter> logger)
         {
             _destination = destination;
             _logger = logger;
         }
 
-        public async Task RestoreAsync(IAsyncEnumerable<JObject> documents, bool concurrent, CancellationToken cancellationToken = default)
+        public async Task RestoreAsync(IAsyncEnumerable<JObject> documents, CancellationToken cancellationToken = default)
         {
             var container = await _destination.ReadContainerAsync(cancellationToken: cancellationToken);
             var partitionKeyPath = container.Resource.PartitionKeyPath?
@@ -33,43 +33,78 @@ namespace RH.Clio.Cosmos
                 .Where(s => !string.IsNullOrEmpty(s))
                 .ToList() ?? new List<string>();
 
-            var tasks = new List<Task>();
+            // http://blog.i3arnon.com/2016/05/23/tpl-dataflow/
 
-            // TODO: Create batches or producer/consumer here to prevent flooding memory with tasks
+            // Use TransformBlock to prevent flooding memory with tasks
+            var encodeDocumentBlock = new TransformBlock<JObject, Document>(
+                document =>
+                {
+                    var json = document.ToString(Formatting.None);
+
+                    var partitionKeyValue = GetPartitionKey(document);
+
+                    var partitionKey = !string.IsNullOrEmpty(partitionKeyValue)
+                        ? new PartitionKey(partitionKeyValue)
+                        : PartitionKey.None;
+
+                    var content = new MemoryStream(Encoding.UTF8.GetBytes(json));
+                    return new Document(partitionKey, content);
+                },
+                new ExecutionDataflowBlockOptions
+                {
+                    MaxDegreeOfParallelism = DataflowBlockOptions.Unbounded,
+                    BoundedCapacity = 100, // TODO: Make configurable, should be a value that prevents too much concurrent memory usage
+                    CancellationToken = cancellationToken
+                }
+            );
+
+            // Use ActionBlock to throttle number of upserts occurring concurrently
+            var upsertBlock = new ActionBlock<Document>(
+                async document =>
+                {
+                    try
+                    {
+                        // TODO: Add polly retry to prevent failure
+                        // OR... requeue document into upsert block?
+                        var response = await _destination.UpsertItemStreamAsync(document.Content, document.PartitionKey, cancellationToken: cancellationToken);
+
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            _logger.LogError("Failed to insert document, received status code {statusCode}", response.StatusCode);
+                        }
+                        else
+                        {
+                            _logger.LogTrace("Inserted document, cost {requestCharge} RUs.", response.Headers.RequestCharge);
+                        }
+                    }
+                    finally
+                    {
+                        await document.Content.DisposeAsync();
+                    }
+                },
+                new ExecutionDataflowBlockOptions
+                {
+                    MaxDegreeOfParallelism = DataflowBlockOptions.Unbounded,
+                    BoundedCapacity = 100, // TODO: This should be a value that prevents too many simultanious requests from upserting or waiting to retry
+                    CancellationToken = cancellationToken
+                });
+
+            encodeDocumentBlock.LinkTo(upsertBlock, new DataflowLinkOptions
+            {
+                PropagateCompletion = true
+            });
 
             await foreach (var document in documents.WithCancellation(cancellationToken))
             {
-                var json = document.ToString(Formatting.None);
-
-                var partitionKeyValue = GetPartitionKey(document);
-
-                var partitionKey = !string.IsNullOrEmpty(partitionKeyValue)
-                    ? new PartitionKey(partitionKeyValue)
-                    : PartitionKey.None;
-
-                // Queue up inserts to run concurrently to take advantage of bulk execution support
-                var task = Task.Run(async () =>
-                {
-                    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
-                    var response = await _destination.UpsertItemStreamAsync(stream, partitionKey, cancellationToken: cancellationToken);
-
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        _logger.LogError("Failed to insert document, received status code {statusCode}", response.StatusCode);
-                    }
-                    else
-                    {
-                        _logger.LogTrace("Inserted document, cost {requestCharge} RUs.", response.Headers.RequestCharge);
-                    }
-                });
-
-                tasks.Add(task);
-
-                if (!concurrent)
-                    await task;
+                // Queue up the document
+                await encodeDocumentBlock.SendAsync(document, cancellationToken);
             }
 
-            await Task.WhenAll(tasks);
+            // Notify completion of all input
+            encodeDocumentBlock.Complete();
+
+            // Wait for all upserts to complete
+            await upsertBlock.Completion;
 
             string GetPartitionKey(JObject document)
             {
@@ -90,22 +125,17 @@ namespace RH.Clio.Cosmos
                 return string.Empty;
             }
         }
-    }
-    /*
-    internal interface IDocumentWriter
-    {
-        Task UpsertDocumentAsync(JObject document, CancellationToken cancellationToken = default);
-    }
 
-    internal class DocumentWriter : IDocumentWriter
-    {
-        private IList<string>? _partitionKeyPaths;
-
-        public DocumentWriter(Container destinationContainer)
+        private class Document
         {
+            public Document(PartitionKey partitionKey, Stream content)
+            {
+                PartitionKey = partitionKey;
+                Content = content;
+            }
 
+            public PartitionKey PartitionKey { get; }
+            public Stream Content { get; }
         }
-
-        private IList<string> 
-    }*/
+    }
 }

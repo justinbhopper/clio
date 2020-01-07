@@ -18,7 +18,7 @@ namespace RH.Clio
         public static async Task Main()
         {
             var seriLogger = new LoggerConfiguration()
-                .MinimumLevel.Debug()
+                .MinimumLevel.Verbose()
                 .Enrich.FromLogContext()
                 .WriteTo.Console()
                 .CreateLogger();
@@ -113,7 +113,7 @@ namespace RH.Clio
             var sourceContainerDetails = await sourceContainer.ReadContainerAsync();
             var destinationContainerProperties = new ContainerProperties(destinationContainerName, sourceContainerDetails.Resource.PartitionKeyPath);
             var destinationContainer = await database.CreateContainerIfNotExistsAsync(destinationContainerProperties);
-            var containerWriter = new ContainerWriter(destinationContainer, loggerFactory.CreateLogger<ContainerWriter>());
+            var containerWriter = new ConcurrentContainerWriter(destinationContainer, loggerFactory.CreateLogger<ConcurrentContainerWriter>());
 
             var logger = loggerFactory.CreateLogger<Program>();
             logger.LogInformation("Restoring snapshot...");
@@ -128,7 +128,7 @@ namespace RH.Clio
                 using var changeFeedStreamReader = new StreamReader(changeFeedStream, Encoding.UTF8);
                 var snapshotReader = new StreamSnapshotReader(snapshotStreamReader, changeFeedStreamReader);
 
-                await containerWriter.RestoreAsync(snapshotReader, concurrent);
+                await containerWriter.RestoreAsync(snapshotReader);
             }
 
             logger.LogInformation("Restore took {timeMs}ms to complete ({concurrent}).", stopwatch.ElapsedMilliseconds, concurrent ? "concurrent" : "sequence");

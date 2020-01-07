@@ -7,6 +7,6 @@ namespace RH.Clio.Cosmos
 {
     public interface IContainerWriter
     {
-        Task RestoreAsync(IAsyncEnumerable<JObject> documents, bool concurrent, CancellationToken cancellationToken = default);
+        Task RestoreAsync(IAsyncEnumerable<JObject> documents, CancellationToken cancellationToken = default);
     }
 }
