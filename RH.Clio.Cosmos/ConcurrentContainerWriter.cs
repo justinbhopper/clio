@@ -35,7 +35,7 @@ namespace RH.Clio.Cosmos
 
             // http://blog.i3arnon.com/2016/05/23/tpl-dataflow/
 
-            // Use TransformBlock to prevent flooding memory with tasks
+            // Use TransformBlock to prevent flooding memory with too many streams
             var encodeDocumentBlock = new TransformBlock<JObject, Document>(
                 document =>
                 {
@@ -85,7 +85,7 @@ namespace RH.Clio.Cosmos
                 new ExecutionDataflowBlockOptions
                 {
                     MaxDegreeOfParallelism = DataflowBlockOptions.Unbounded,
-                    BoundedCapacity = 100, // TODO: This should be a value that prevents too many simultanious requests from upserting or waiting to retry
+                    BoundedCapacity = 3, // TODO: This should be a value that prevents too many simultanious requests from upserting or waiting to retry
                     CancellationToken = cancellationToken
                 });
 
