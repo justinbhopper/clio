@@ -15,10 +15,15 @@ namespace RH.Clio
 {
     public class Program
     {
+        private const string s_snapshotPath = @"c:\workarea\snapshot.json";
+        private const string s_changefeedPath = @"c:\workarea\changefeed.json";
+        private const string s_host = "https://localhost:8081";
+        private const string s_authKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
+
         public static async Task Main()
         {
             var seriLogger = new LoggerConfiguration()
-                .MinimumLevel.Verbose()
+                .MinimumLevel.Debug()
                 .Enrich.FromLogContext()
                 .WriteTo.Console()
                 .CreateLogger();
@@ -75,8 +80,8 @@ namespace RH.Clio
                 var leaseContainerProperties = new ContainerProperties(leaseContainerName, "/id");
                 var leaseContainer = await database.CreateContainerIfNotExistsAsync(leaseContainerProperties, throughput: 400);
 
-                using var snapshotStream = File.Open(@"f:\snapshot.json", FileMode.Truncate, FileAccess.Write, FileShare.Read);
-                using var changeFeedStream = File.Open(@"f:\changefeed.json", FileMode.Truncate, FileAccess.Write, FileShare.Read);
+                using var snapshotStream = File.Open(s_snapshotPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+                using var changeFeedStream = File.Open(s_changefeedPath, FileMode.Create, FileAccess.Write, FileShare.Read);
 
                 var snapshot = new FileSnapshotWriter(snapshotStream, changeFeedStream, Encoding.UTF8);
 
@@ -114,6 +119,13 @@ namespace RH.Clio
             var destinationContainerProperties = new ContainerProperties(destinationContainerName, sourceContainerDetails.Resource.PartitionKeyPath);
             var destinationContainer = await database.CreateContainerIfNotExistsAsync(destinationContainerProperties);
             var containerWriter = new ConcurrentContainerWriter(destinationContainer, loggerFactory.CreateLogger<ConcurrentContainerWriter>());
+            var documentWriteLogger = new DocumentWriteLogger(Console.CursorTop);
+
+            containerWriter.DocumentInserted += (s, e) => documentWriteLogger.OnDocumentInserted();
+            containerWriter.DocumentInserting += (s, e) => documentWriteLogger.OnDocumentInserting();
+            containerWriter.DocumentQueued += (s, e) => documentWriteLogger.OnDocumentQueued();
+            containerWriter.ThrottleWaitStarted += (s, e) => documentWriteLogger.OnThrottleStarted();
+            containerWriter.ThrottleWaitFinished += (s, e) => documentWriteLogger.OnThrottleFinished();
 
             var logger = loggerFactory.CreateLogger<Program>();
             logger.LogInformation("Restoring snapshot...");
@@ -121,8 +133,8 @@ namespace RH.Clio
             var stopwatch = new Stopwatch();
             stopwatch.Start();
 
-            using (var snapshotStream = File.Open(@"f:\snapshot.json", FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (var changeFeedStream = File.Open(@"f:\changefeed.json", FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var snapshotStream = File.Open(s_snapshotPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var changeFeedStream = File.Open(s_changefeedPath, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 using var snapshotStreamReader = new StreamReader(snapshotStream, Encoding.UTF8);
                 using var changeFeedStreamReader = new StreamReader(changeFeedStream, Encoding.UTF8);
@@ -136,14 +148,12 @@ namespace RH.Clio
 
         private static CosmosClient CreateClient(bool allowBulkExecution)
         {
-            var host = "https://localhost:8081";
-            var authKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
-            return new CosmosClient(host, authKey, new CosmosClientOptions
+            return new CosmosClient(s_host, s_authKey, new CosmosClientOptions
             {
                 AllowBulkExecution = allowBulkExecution,
                 ConsistencyLevel = ConsistencyLevel.Eventual,
                 MaxRetryWaitTimeOnRateLimitedRequests = TimeSpan.FromSeconds(30),
-                MaxRetryAttemptsOnRateLimitedRequests = 3
+                MaxRetryAttemptsOnRateLimitedRequests = 0
             });
         }
     }
