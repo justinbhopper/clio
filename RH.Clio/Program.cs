@@ -15,8 +15,8 @@ namespace RH.Clio
 {
     public class Program
     {
-        private const string s_snapshotPath = @"c:\workarea\snapshot.json";
-        private const string s_changefeedPath = @"c:\workarea\changefeed.json";
+        private const string s_snapshotPath = @"f:\snapshot.json";
+        private const string s_changefeedPath = @"f:\changefeed.json";
         private const string s_host = "https://localhost:8081";
         private const string s_authKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
 
@@ -42,27 +42,26 @@ namespace RH.Clio
 
             var cosmosClient = CreateClient(false);
 
-            var databaseName = "Practice-0000000000";
-            var sourceContainerName = "Resources";
+            var databaseName = "TestDb";
+            var sourceContainerName = "Conditions";
             var destinationContainerName = "Restored";
+            var query = new QueryDefinition("select * from root r where r.IsHistory = false");
 
-            //await BackupAsync(databaseName, sourceContainerName, true, loggerFactory);
-            await BackupAsync(databaseName, sourceContainerName, false, loggerFactory);
-            await RestoreAsync(databaseName, sourceContainerName, destinationContainerName, true, loggerFactory);
-            //await RestoreAsync(databaseName, sourceContainerName, destinationContainerName, false, loggerFactory);
+            await BackupAsync(databaseName, sourceContainerName, query, loggerFactory);
+            await RestoreAsync(databaseName, sourceContainerName, destinationContainerName, loggerFactory);
         }
 
         private static async Task BackupAsync(
             string databaseName,
             string sourceContainerName,
-            bool concurrent,
+            QueryDefinition query,
             ILoggerFactory loggerFactory)
         {
             var logger = loggerFactory.CreateLogger<Program>();
 
-            var cosmosClient = CreateClient(concurrent);
+            var cosmosClient = CreateClient(false);
             var database = cosmosClient.GetDatabase(databaseName);
-            var leaseContainerName = "Resources-lease";
+            var leaseContainerName = sourceContainerName + "-lease";
 
             var sourceContainer = database.GetContainer(sourceContainerName);
 
@@ -85,7 +84,6 @@ namespace RH.Clio
 
                 var snapshot = new FileSnapshotWriter(snapshotStream, changeFeedStream, Encoding.UTF8);
 
-                var query = new QueryDefinition("select * from root r where r.h = false and r.isSystem = false");
                 var containerReader = new ContainerReader(sourceContainer);
                 //var testReader = new TestContainerReader(containerReader, sourceContainer);
                 var processor = new SnapshotProcessor(sourceContainer, leaseContainer, snapshot, query, containerReader);
@@ -94,7 +92,7 @@ namespace RH.Clio
 
                 await processor.WaitAsync();
 
-                logger.LogInformation("Snapshot took {timeMs}ms to complete ({concurrent}).", stopwatch.ElapsedMilliseconds, concurrent ? "concurrent" : "sequence");
+                logger.LogInformation("Snapshot took {timeMs}ms to complete.", stopwatch.ElapsedMilliseconds);
             }
             finally
             {
@@ -106,10 +104,9 @@ namespace RH.Clio
             string databaseName,
             string sourceContainerName,
             string destinationContainerName,
-            bool concurrent,
             ILoggerFactory loggerFactory)
         {
-            var cosmosClient = CreateClient(concurrent);
+            var cosmosClient = CreateClient(true);
             var database = cosmosClient.GetDatabase(databaseName);
 
             await database.GetContainer(destinationContainerName).DeleteContainerIfExistsAsync();
@@ -121,9 +118,9 @@ namespace RH.Clio
             var containerWriter = new ConcurrentContainerWriter(destinationContainer, loggerFactory.CreateLogger<ConcurrentContainerWriter>());
             var documentWriteLogger = new DocumentWriteLogger(Console.CursorTop);
 
-            containerWriter.DocumentInserted += (s, e) => documentWriteLogger.OnDocumentInserted();
+            containerWriter.DocumentInserted += (s, e) => documentWriteLogger.OnDocumentInserted(e.CorrelationId);
             containerWriter.DocumentInserting += (s, e) => documentWriteLogger.OnDocumentInserting();
-            containerWriter.DocumentQueued += (s, e) => documentWriteLogger.OnDocumentQueued();
+            containerWriter.DocumentQueued += (s, e) => documentWriteLogger.OnDocumentQueued(e.CorrelationId);
             containerWriter.ThrottleWaitStarted += (s, e) => documentWriteLogger.OnThrottleStarted();
             containerWriter.ThrottleWaitFinished += (s, e) => documentWriteLogger.OnThrottleFinished();
 
@@ -143,7 +140,7 @@ namespace RH.Clio
                 await containerWriter.RestoreAsync(snapshotReader);
             }
 
-            logger.LogInformation("Restore took {timeMs}ms to complete ({concurrent}).", stopwatch.ElapsedMilliseconds, concurrent ? "concurrent" : "sequence");
+            logger.LogInformation("Restore took {timeMs}ms to complete.", stopwatch.ElapsedMilliseconds);
         }
 
         private static CosmosClient CreateClient(bool allowBulkExecution)

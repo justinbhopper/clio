@@ -1,7 +1,10 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -32,6 +35,20 @@ namespace RH.Clio.Cosmos
                     cancellationToken.ThrowIfCancellationRequested();
 
                     using var response = await iterator.ReadNextAsync(cancellationToken);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        if (response.StatusCode != HttpStatusCode.TooManyRequests)
+                            throw new Exception($"Unexpected status code {response.StatusCode} in response."); // TODO: Create better exception
+
+                        if (!response.Headers.TryGetValue("x-ms-retry-after-ms", out var waitTimeMs) || string.IsNullOrEmpty(waitTimeMs))
+                            waitTimeMs = "100";
+
+                        await Task.Delay(TimeSpan.FromMilliseconds(double.Parse(waitTimeMs)));
+
+                        continue;
+                    }
+
                     using var reader = new StreamReader(response.Content);
                     using var jsonReader = new JsonTextReader(reader);
 

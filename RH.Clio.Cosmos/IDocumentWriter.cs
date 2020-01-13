@@ -1,17 +1,19 @@
-﻿using System;
+using System;
 
 namespace RH.Clio.Cosmos
 {
     public interface IDocumentWriter
     {
-        event EventHandler? ThrottleWaitStarted;
+        event EventHandler<DocumentEventArgs>? ThrottleWaitStarted;
 
-        event EventHandler? ThrottleWaitFinished;
+        event EventHandler<DocumentEventArgs>? ThrottleWaitFinished;
 
-        event EventHandler? DocumentQueued;
+        event EventHandler<DocumentEventArgs>? DocumentQueued;
 
-        event EventHandler? DocumentInserting;
+        event EventHandler<DocumentEventArgs>? DocumentInserting;
 
-        event EventHandler? DocumentInserted;
+        event EventHandler<DocumentEventArgs>? DocumentInserted;
+
+        event EventHandler<DocumentEventArgs>? DocumentFailed;
     }
 }
