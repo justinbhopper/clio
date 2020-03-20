@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,17 +13,19 @@ namespace RH.Clio.Snapshots.Blobs
     {
         private readonly CloudBlobContainer _container;
         private readonly Encoding _encoding;
+        private readonly string _rootPath;
 
-        public BlobSnapshotReader(CloudBlobContainer container, Encoding encoding)
+        public BlobSnapshotReader(CloudBlobContainer container, Encoding encoding, string rootPath)
         {
             _container = container;
             _encoding = encoding;
+            _rootPath = rootPath;
         }
 
         protected override IAsyncEnumerator<string> GetDocumentsAsync(CancellationToken cancellationToken = default)
         {
-            var documentsEnumerator = new ListBlobItemEnumerator(_container, "documents");
-            var changeFeedEnumerator = new ListBlobItemEnumerator(_container, "changefeed");
+            var documentsEnumerator = new ListBlobItemEnumerator(_container, Path.Combine(_rootPath, BlobSnapshotWriter.s_documentPrefix));
+            var changeFeedEnumerator = new ListBlobItemEnumerator(_container, Path.Combine(_rootPath, BlobSnapshotWriter.s_changeFeedPrefix));
             return new DualBlobListEnumerator(documentsEnumerator, changeFeedEnumerator, _encoding, cancellationToken);
         }
 

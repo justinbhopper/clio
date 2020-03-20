@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,20 +10,24 @@ namespace RH.Clio.Snapshots.Blobs
     public class BlobSnapshotWriter : StringSnapshotWriter, ISnapshotHandle
     {
         internal const string s_documentPrefix = "document";
-        internal const string s_changeFeedPrefix = "document";
+        internal const string s_changeFeedPrefix = "changefeed";
 
         private readonly CloudBlobContainer _container;
         private readonly Encoding _encoding;
+        private readonly string _documentPrefix;
+        private readonly string _changeFeedPrefix;
         private readonly SemaphoreSlim _lock = new SemaphoreSlim(1, 1);
 
         private int _documentIndex;
         private int _changeFeedIndex;
         private bool _initialized;
 
-        public BlobSnapshotWriter(CloudBlobContainer container, Encoding encoding)
+        public BlobSnapshotWriter(CloudBlobContainer container, Encoding encoding, string rootPath)
         {
             _container = container;
             _encoding = encoding;
+            _documentPrefix = Path.Combine(rootPath, s_documentPrefix);
+            _changeFeedPrefix = Path.Combine(rootPath, s_changeFeedPrefix);
         }
 
         protected override async Task AppendSnapshotDocumentAsync(string document, CancellationToken cancellationToken)
@@ -30,7 +35,7 @@ namespace RH.Clio.Snapshots.Blobs
             await InitializeAsync(cancellationToken);
 
             var index = Interlocked.Increment(ref _documentIndex);
-            await UploadAsync(s_documentPrefix + "-" + index, document, cancellationToken);
+            await UploadAsync(_documentPrefix + "-" + index, document, cancellationToken);
         }
 
         protected override async Task AppendChangeFeedDocumentAsync(string document, CancellationToken cancellationToken)
@@ -38,7 +43,7 @@ namespace RH.Clio.Snapshots.Blobs
             await InitializeAsync(cancellationToken);
 
             var index = Interlocked.Increment(ref _changeFeedIndex);
-            await UploadAsync(s_changeFeedPrefix + "-" + index, document, cancellationToken);
+            await UploadAsync(_changeFeedPrefix + "-" + index, document, cancellationToken);
         }
 
         public async Task DeleteAsync(CancellationToken cancellationToken)

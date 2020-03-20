@@ -27,6 +27,11 @@ namespace RH.Clio.Snapshots
 
         protected abstract IAsyncEnumerator<string> GetDocumentsAsync(CancellationToken cancellationToken = default);
 
+        public virtual void Dispose()
+        {
+            // No op by default
+        }
+
         public virtual void Close()
         {
             // No op by default

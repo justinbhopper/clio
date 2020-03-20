@@ -4,6 +4,11 @@ namespace RH.Clio.Cosmos
 {
     public class DocumentEventArgs : EventArgs
     {
-        public string CorrelationId { get; } = Guid.NewGuid().ToString();
+        public DocumentEventArgs(string correlationId)
+        {
+            CorrelationId = correlationId;
+        }
+
+        public string CorrelationId { get; }
     }
 }

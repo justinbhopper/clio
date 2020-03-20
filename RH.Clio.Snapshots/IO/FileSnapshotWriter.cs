@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -14,13 +13,16 @@ namespace RH.Clio.Snapshots.IO
         private readonly FileStream _changeFeedStream;
 
         public FileSnapshotWriter(FileStream snapshotStream, FileStream changeFeedStream, Encoding encoding)
+            : this(snapshotStream, changeFeedStream, encoding, false) { }
+
+        public FileSnapshotWriter(FileStream snapshotStream, FileStream changeFeedStream, Encoding encoding, bool leaveOpen)
         {
             _snapshotStream = snapshotStream;
             _changeFeedStream = changeFeedStream;
 
             var snapshotStreamWriter = new StreamWriter(_snapshotStream, encoding);
             var changeFeedStreamWriter = new StreamWriter(_changeFeedStream, encoding);
-            _snapshotWriter = new StreamSnapshotWriter(snapshotStreamWriter, changeFeedStreamWriter, false);
+            _snapshotWriter = new StreamSnapshotWriter(snapshotStreamWriter, changeFeedStreamWriter, leaveOpen);
         }
 
         public Task AppendSnapshotDocumentAsync(JObject document, CancellationToken cancellationToken)

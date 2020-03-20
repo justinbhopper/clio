@@ -10,11 +10,16 @@ namespace RH.Clio.Snapshots.IO
     {
         private readonly StreamReader _snapshotReader;
         private readonly StreamReader _changeFeedReader;
+        private readonly bool _leaveOpen;
 
         public StreamSnapshotReader(StreamReader snapshotReader, StreamReader changeFeedReader)
+            : this(snapshotReader, changeFeedReader, false) { }
+
+        public StreamSnapshotReader(StreamReader snapshotReader, StreamReader changeFeedReader, bool leaveOpen)
         {
-            _snapshotReader = snapshotReader;
-            _changeFeedReader = changeFeedReader;
+            _snapshotReader = snapshotReader ?? throw new ArgumentNullException(nameof(snapshotReader));
+            _changeFeedReader = changeFeedReader ?? throw new ArgumentNullException(nameof(changeFeedReader));
+            _leaveOpen = leaveOpen;
         }
 
         protected override IAsyncEnumerator<string> GetDocumentsAsync(CancellationToken cancellationToken = default)
@@ -26,6 +31,15 @@ namespace RH.Clio.Snapshots.IO
         {
             _snapshotReader.Close();
             _changeFeedReader.Close();
+        }
+
+        public override void Dispose()
+        {
+            if (_leaveOpen)
+                return;
+
+            _snapshotReader.Dispose();
+            _changeFeedReader.Dispose();
         }
 
         private class DualStreamEnumerator : IAsyncEnumerator<string>, IDisposable

@@ -10,7 +10,8 @@ namespace RH.Clio
     {
         private readonly object _lock = new object();
         private readonly int _writeTopPos;
-        private readonly IDictionary<string, Stopwatch> _activity = new Dictionary<string, Stopwatch>();
+        private readonly Stopwatch _timer = new Stopwatch();
+        private readonly IDictionary<string, Stopwatch> _duration = new Dictionary<string, Stopwatch>();
 
         private int _queueCount;
         private int _waitCount;
@@ -26,13 +27,14 @@ namespace RH.Clio
         {
             lock (_lock)
             {
-                var totalWaitTimeMs = _activity.Values.Sum(sw => sw.ElapsedMilliseconds);
-                var avgWaitTimeMs = (double)totalWaitTimeMs / _activity.Values.Count;
+                var totalWaitTimeMs = _duration.Values.Sum(sw => sw.ElapsedMilliseconds);
+                var avgWaitTimeMs = (double)totalWaitTimeMs / _duration.Values.Count;
 
                 Console.SetCursorPosition(0, _writeTopPos);
 
                 // Clear lines
                 var blankLine = new string(' ', Console.WindowWidth);
+                Console.WriteLine(blankLine);
                 Console.WriteLine(blankLine);
                 Console.WriteLine(blankLine);
                 Console.WriteLine(blankLine);
@@ -46,6 +48,7 @@ namespace RH.Clio
                 Console.WriteLine("Inserting: " + _insertingCount);
                 Console.WriteLine("Inserted: " + _insertedCount);
                 Console.WriteLine("Average Insert Time: {0:0.00}ms", avgWaitTimeMs);
+                Console.WriteLine("Total time elapsed: {0:0.00}sec", _timer.Elapsed.TotalSeconds);
             }
         }
 
@@ -54,7 +57,10 @@ namespace RH.Clio
             Interlocked.Decrement(ref _insertingCount);
             Interlocked.Increment(ref _insertedCount);
 
-            _activity.Remove(documentId);
+            lock (_lock)
+            {
+                _duration.Remove(documentId);
+            }
 
             Render();
         }
@@ -89,7 +95,12 @@ namespace RH.Clio
 
             var stopwatch = new Stopwatch();
             stopwatch.Start();
-            _activity.TryAdd(documentId, stopwatch);
+
+            lock (_lock)
+            {
+                _timer.Start();
+                _duration.TryAdd(documentId, stopwatch);
+            }
 
             Render();
         }

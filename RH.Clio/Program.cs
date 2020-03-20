@@ -2,11 +2,17 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Azure.Storage.Auth;
+using Microsoft.Azure.Storage.Blob;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using RH.Clio.Commands;
 using RH.Clio.Cosmos;
+using RH.Clio.Snapshots;
+using RH.Clio.Snapshots.Blobs;
 using RH.Clio.Snapshots.IO;
 using Serilog;
 using Serilog.Extensions.Logging;
@@ -19,6 +25,9 @@ namespace RH.Clio
         private const string s_changefeedPath = @"f:\changefeed.json";
         private const string s_host = "https://localhost:8081";
         private const string s_authKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
+        private const string s_blobAccountName = "rhapollodevelopment";
+        private const string s_blobKey = "oxrOM83h3f8OUu3AmhbtCxX+/ykSS+SJgua6+8IccLoWxxwNyIV2MgQMEM7+hBNyQ/6XQtjTcbOPMz0ywawEWA==";
+        private const string s_blobEndpoint = "core.windows.net";
 
         public static async Task Main()
         {
@@ -36,122 +45,70 @@ namespace RH.Clio
                         .SetMinimumLevel(LogLevel.Trace);
                 })
                 .AddSingleton<ILoggerFactory>(services => new SerilogLoggerFactory(seriLogger, true))
+                .AddTransient<CosmosClientFactory>(sp => new CosmosClientFactory(s_host, s_authKey))
+                .AddTransient<BackupHandler>()
+                .AddTransient<RestoreHandler>()
                 .BuildServiceProvider();
 
             var loggerFactory = services.GetRequiredService<ILoggerFactory>();
-
-            var cosmosClient = CreateClient(false);
 
             var databaseName = "TestDb";
             var sourceContainerName = "Conditions";
             var destinationContainerName = "Restored";
             var query = new QueryDefinition("select * from root r where r.IsHistory = false");
 
-            await BackupAsync(databaseName, sourceContainerName, query, loggerFactory);
-            await RestoreAsync(databaseName, sourceContainerName, destinationContainerName, loggerFactory);
-        }
+            var fileSnapshotFactory = new FileSnapshotFactory(s_snapshotPath, s_changefeedPath);
 
-        private static async Task BackupAsync(
-            string databaseName,
-            string sourceContainerName,
-            QueryDefinition query,
-            ILoggerFactory loggerFactory)
-        {
-            var logger = loggerFactory.CreateLogger<Program>();
+            //var blobContainer = new CloudBlobContainer(new Uri(s_blobEndpoint), new StorageCredentials(s_blobAccountName, s_blobKey));
+            //var blobSnapshotFactory = new BlobSnapshotFactory(blobContainer, databaseName, sourceContainerName);
 
-            var cosmosClient = CreateClient(false);
-            var database = cosmosClient.GetDatabase(databaseName);
-            var leaseContainerName = sourceContainerName + "-lease";
-
-            var sourceContainer = database.GetContainer(sourceContainerName);
-
-            // Should we own the lease container?  Leaving it around sometimes seems to cause issues with future runs...
-            await database.GetContainer(leaseContainerName).DeleteContainerIfExistsAsync();
-
-            var stopwatch = new Stopwatch();
-
-            try
-            {
-                stopwatch.Start();
-
-                logger.LogInformation("Taking snapshot...");
-
-                var leaseContainerProperties = new ContainerProperties(leaseContainerName, "/id");
-                var leaseContainer = await database.CreateContainerIfNotExistsAsync(leaseContainerProperties, throughput: 400);
-
-                using var snapshotStream = File.Open(s_snapshotPath, FileMode.Create, FileAccess.Write, FileShare.Read);
-                using var changeFeedStream = File.Open(s_changefeedPath, FileMode.Create, FileAccess.Write, FileShare.Read);
-
-                var snapshot = new FileSnapshotWriter(snapshotStream, changeFeedStream, Encoding.UTF8);
-
-                var containerReader = new ContainerReader(sourceContainer);
-                //var testReader = new TestContainerReader(containerReader, sourceContainer);
-                var processor = new SnapshotProcessor(sourceContainer, leaseContainer, snapshot, query, containerReader);
-
-                await processor.StartAsync();
-
-                await processor.WaitAsync();
-
-                logger.LogInformation("Snapshot took {timeMs}ms to complete.", stopwatch.ElapsedMilliseconds);
-            }
-            finally
-            {
-                await database.GetContainer(leaseContainerName).DeleteContainerIfExistsAsync();
-            }
-        }
-
-        private static async Task RestoreAsync(
-            string databaseName,
-            string sourceContainerName,
-            string destinationContainerName,
-            ILoggerFactory loggerFactory)
-        {
-            var cosmosClient = CreateClient(true);
-            var database = cosmosClient.GetDatabase(databaseName);
-
-            await database.GetContainer(destinationContainerName).DeleteContainerIfExistsAsync();
-
-            var sourceContainer = database.GetContainer(sourceContainerName);
-            var sourceContainerDetails = await sourceContainer.ReadContainerAsync();
-            var destinationContainerProperties = new ContainerProperties(destinationContainerName, sourceContainerDetails.Resource.PartitionKeyPath);
-            var destinationContainer = await database.CreateContainerIfNotExistsAsync(destinationContainerProperties);
-            var containerWriter = new ConcurrentContainerWriter(destinationContainer, loggerFactory.CreateLogger<ConcurrentContainerWriter>());
-            var documentWriteLogger = new DocumentWriteLogger(Console.CursorTop);
-
-            containerWriter.DocumentInserted += (s, e) => documentWriteLogger.OnDocumentInserted(e.CorrelationId);
-            containerWriter.DocumentInserting += (s, e) => documentWriteLogger.OnDocumentInserting();
-            containerWriter.DocumentQueued += (s, e) => documentWriteLogger.OnDocumentQueued(e.CorrelationId);
-            containerWriter.ThrottleWaitStarted += (s, e) => documentWriteLogger.OnThrottleStarted();
-            containerWriter.ThrottleWaitFinished += (s, e) => documentWriteLogger.OnThrottleFinished();
+            ISnapshotFactory snapshotFactory = fileSnapshotFactory;
 
             var logger = loggerFactory.CreateLogger<Program>();
-            logger.LogInformation("Restoring snapshot...");
-
             var stopwatch = new Stopwatch();
+
+            var sourceContainerDetails = await services.GetRequiredService<CosmosClientFactory>()
+                .CreateClient(false)
+                .GetDatabase(databaseName)
+                .GetContainer(sourceContainerName)
+                .ReadContainerAsync();
+
+            var restoreConfig = new ContainerConfiguration(destinationContainerName, sourceContainerDetails.Resource.PartitionKeyPath, 400);
+
             stopwatch.Start();
+            logger.LogInformation("Taking snapshot...");
 
-            using (var snapshotStream = File.Open(s_snapshotPath, FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (var changeFeedStream = File.Open(s_changefeedPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            await using (var snapshot = snapshotFactory.CreateWriter())
             {
-                using var snapshotStreamReader = new StreamReader(snapshotStream, Encoding.UTF8);
-                using var changeFeedStreamReader = new StreamReader(changeFeedStream, Encoding.UTF8);
-                var snapshotReader = new StreamSnapshotReader(snapshotStreamReader, changeFeedStreamReader);
-
-                await containerWriter.RestoreAsync(snapshotReader);
+                var request = new BackupRequest(databaseName, sourceContainerName, snapshot, query);
+                await services.GetRequiredService<BackupHandler>().Handle(request, CancellationToken.None);
             }
 
-            logger.LogInformation("Restore took {timeMs}ms to complete.", stopwatch.ElapsedMilliseconds);
-        }
+            logger.LogInformation("Snapshot took {timeMs}ms to complete.", stopwatch.ElapsedMilliseconds);
 
-        private static CosmosClient CreateClient(bool allowBulkExecution)
-        {
-            return new CosmosClient(s_host, s_authKey, new CosmosClientOptions
+            stopwatch.Restart();
+            logger.LogInformation("Restoring snapshot ({throughput} throughput)...", restoreConfig.Throughput);
+
+            using (var snapshot = snapshotFactory.CreateReader())
             {
-                AllowBulkExecution = allowBulkExecution,
-                ConsistencyLevel = ConsistencyLevel.Eventual,
-                MaxRetryWaitTimeOnRateLimitedRequests = TimeSpan.FromSeconds(30),
-                MaxRetryAttemptsOnRateLimitedRequests = 0
-            });
+                var request = new RestoreRequest(databaseName, restoreConfig, snapshot)
+                {
+                    DropContainerIfExists = true
+                };
+
+                var documentWriteLogger = new DocumentWriteLogger(Console.CursorTop);
+                request.DocumentInserted += (s, e) => documentWriteLogger.OnDocumentInserted(e.CorrelationId);
+                request.DocumentInserting += (s, e) => documentWriteLogger.OnDocumentInserting();
+                request.DocumentQueued += (s, e) => documentWriteLogger.OnDocumentQueued(e.CorrelationId);
+                request.ThrottleWaitStarted += (s, e) => documentWriteLogger.OnThrottleStarted();
+                request.ThrottleWaitFinished += (s, e) => documentWriteLogger.OnThrottleFinished();
+
+                await services.GetRequiredService<RestoreHandler>().Handle(request, CancellationToken.None);
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("Press any key to exit...");
+            Console.ReadKey();
         }
     }
 }

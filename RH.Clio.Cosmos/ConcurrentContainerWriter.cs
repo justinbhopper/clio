@@ -117,7 +117,7 @@ namespace RH.Clio.Cosmos
                 using var content = new MemoryStream(Encoding.UTF8.GetBytes(json));
 
                 DocumentInserting?.Invoke(this, item);
-                _logger.LogTrace("Inserting document {activityId}...");
+                _logger.LogTrace("Inserting document {activityId}...", item.CorrelationId);
 
                 var response = await _destination.UpsertItemStreamAsync(content, partitionKey, cancellationToken: cancellationToken);
 
@@ -133,7 +133,7 @@ namespace RH.Clio.Cosmos
                     {
                         if (!response.Headers.TryGetValue("x-ms-retry-after-ms", out var waitTimeMs) || string.IsNullOrEmpty(waitTimeMs))
                             waitTimeMs = "100";
-
+                        
                         await throttledQueue.SendAsync((TimeSpan.FromMilliseconds(double.Parse(waitTimeMs)), item));
                     }
                 }
@@ -167,6 +167,7 @@ namespace RH.Clio.Cosmos
         private class DocumentItem : DocumentEventArgs
         {
             public DocumentItem(JObject jObject)
+                : base(Guid.NewGuid().ToString())
             {
                 JObject = jObject;
             }
