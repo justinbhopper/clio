@@ -72,7 +72,7 @@ namespace RH.Clio
 
             var manager = services.GetRequiredService<ConsoleSnapshotManager>();
 
-            //await manager.BackupAsync(databaseName, sourceContainerName, query, snapshotFactory);
+            await manager.BackupAsync(databaseName, sourceContainerName, query, snapshotFactory);
             await manager.RestoreAsync(databaseName, restoreConfig, snapshotFactory, true);
 
             Console.WriteLine();

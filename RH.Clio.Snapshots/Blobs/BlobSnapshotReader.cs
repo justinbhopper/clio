@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Dataflow;
 using Microsoft.Azure.Storage;
 using Microsoft.Azure.Storage.Blob;
 
@@ -19,13 +20,22 @@ namespace RH.Clio.Snapshots.Blobs
             _encoding = encoding;
         }
 
-        protected override IAsyncEnumerator<string> GetDocumentsAsync(CancellationToken cancellationToken = default)
+        protected override async Task ReceiveDocumentsAsync(ITargetBlock<string> queue, CancellationToken cancellationToken)
         {
-            var documentsEnumerator = new ListBlobItemEnumerator(_container);
-            return new BlobListEnumerator(documentsEnumerator, _encoding, cancellationToken);
+            var blobItemEnumerator = new ListBlobItemEnumerator(_container);
+            var documentEnumerator = new DocumentEnumerator(blobItemEnumerator, _encoding, cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            while (await documentEnumerator.MoveNextAsync())
+            {
+                await queue.SendAsync(documentEnumerator.Current, cancellationToken);
+            }
+
+            queue.Complete();
         }
 
-        private class BlobListEnumerator : IAsyncEnumerator<string>
+        private class DocumentEnumerator : IAsyncEnumerator<string>
         {
             private readonly ListBlobItemEnumerator _documents;
             private readonly Encoding _encoding;
@@ -33,7 +43,7 @@ namespace RH.Clio.Snapshots.Blobs
 
             private string? _current;
 
-            public BlobListEnumerator(
+            public DocumentEnumerator(
                 ListBlobItemEnumerator documents,
                 Encoding encoding,
                 CancellationToken cancellationToken)
@@ -63,7 +73,7 @@ namespace RH.Clio.Snapshots.Blobs
                 {
                     _cancellationToken.ThrowIfCancellationRequested();
 
-                    if (await _documents.MoveNextAsync() && await TrySetCurrentAsync(_documents.Current))
+                    if (await _documents.MoveNextAsync(_cancellationToken) && await TrySetCurrentAsync(_documents.Current))
                         return true;
                 }
 

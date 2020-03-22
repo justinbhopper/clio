@@ -34,7 +34,7 @@ namespace RH.Clio.Cosmos
         public event EventHandler<DocumentEventArgs>? DocumentInserted;
         public event EventHandler<DocumentEventArgs>? DocumentFailed;
 
-        public async Task RestoreAsync(IAsyncEnumerable<JObject> documents, CancellationToken cancellationToken = default)
+        public async Task RestoreAsync(IReceivableSourceBlock<JObject> documentsSource, CancellationToken cancellationToken = default)
         {
             using var throttleSignal = new CountdownEvent(0);
             var container = await _destination.ReadContainerAsync(cancellationToken: cancellationToken);
@@ -66,6 +66,19 @@ namespace RH.Clio.Cosmos
                     BoundedCapacity = boundedCapacity
                 });
 
+            var convertDocument = new TransformBlock<JObject, DocumentItem>(document =>
+                {
+                    var item = new DocumentItem(document);
+                    DocumentQueued?.Invoke(this, item);
+                    return item;
+                },
+                new ExecutionDataflowBlockOptions
+                {
+                    EnsureOrdered = false,
+                    MaxDegreeOfParallelism = boundedCapacity, // Limit how many concurrent items can be waiting
+                    BoundedCapacity = boundedCapacity
+                });
+
             // Use ActionBlock to throttle number of upserts occurring concurrently
             var upsertBlock = new ActionBlock<DocumentItem>(
                 Upsert,
@@ -82,21 +95,18 @@ namespace RH.Clio.Cosmos
                 PropagateCompletion = true
             });
 
-            await foreach (var document in documents.WithCancellation(cancellationToken))
+            documentsSource.LinkTo(convertDocument, new DataflowLinkOptions
             {
-                var item = new DocumentItem(document);
-                DocumentQueued?.Invoke(this, item);
+                PropagateCompletion = true
+            });
 
-                // Queue up the document
-                await upsertBlock.SendAsync(item, cancellationToken);
-
-                _logger.LogTrace("Queued up {documentCount} documents...", upsertBlock.InputCount);
-            }
+            convertDocument.LinkTo(upsertBlock, new DataflowLinkOptions
+            {
+                PropagateCompletion = true
+            });
 
             throttleSignal.Wait();
 
-            // Notify completion of all input
-            upsertBlock.Complete();
             await upsertBlock.Completion;
 
             async Task Upsert(DocumentItem item)

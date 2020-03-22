@@ -17,6 +17,7 @@ namespace RH.Clio
         private int _waitCount;
         private int _insertingCount;
         private int _insertedCount;
+        private int _failedCount;
 
         public DocumentWriteLogger(int writeTopPos)
         {
@@ -40,6 +41,7 @@ namespace RH.Clio
                 Console.WriteLine(blankLine);
                 Console.WriteLine(blankLine);
                 Console.WriteLine(blankLine);
+                Console.WriteLine(blankLine);
 
                 Console.SetCursorPosition(0, _writeTopPos);
 
@@ -47,6 +49,7 @@ namespace RH.Clio
                 Console.WriteLine("Waiting: " + _waitCount);
                 Console.WriteLine("Inserting: " + _insertingCount);
                 Console.WriteLine("Inserted: " + _insertedCount);
+                Console.WriteLine("Failed: " + _failedCount);
                 Console.WriteLine("Average Insert Time: {0:0.00}ms", avgWaitTimeMs);
                 Console.WriteLine("Total time elapsed: {0:0.00}sec", _timer.Elapsed.TotalSeconds);
             }
@@ -56,6 +59,19 @@ namespace RH.Clio
         {
             Interlocked.Decrement(ref _insertingCount);
             Interlocked.Increment(ref _insertedCount);
+
+            lock (_lock)
+            {
+                _duration.Remove(documentId);
+            }
+
+            Render();
+        }
+
+        public void OnDocumentFailed(string documentId)
+        {
+            Interlocked.Decrement(ref _insertingCount);
+            Interlocked.Increment(ref _failedCount);
 
             lock (_lock)
             {

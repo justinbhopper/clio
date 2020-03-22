@@ -55,7 +55,7 @@ namespace RH.Clio.Snapshots.Blobs
             await Task.WhenAll(producer, consumer, queue.Completion);
         }
 
-        private async Task QueueDocumentsAsync(BufferBlock<string> queue, IAsyncEnumerable<string> documents, CancellationToken cancellationToken)
+        private async Task QueueDocumentsAsync(ITargetBlock<string> queue, IAsyncEnumerable<string> documents, CancellationToken cancellationToken)
         {
             await foreach (var document in documents.WithCancellation(cancellationToken))
             {
@@ -65,7 +65,7 @@ namespace RH.Clio.Snapshots.Blobs
             queue.Complete();
         }
 
-        private async Task QueueDocumentsAsync(BufferBlock<string> queue, IEnumerable<string> documents, CancellationToken cancellationToken)
+        private async Task QueueDocumentsAsync(ITargetBlock<string> queue, IEnumerable<string> documents, CancellationToken cancellationToken)
         {
             foreach (var document in documents)
             {
@@ -75,7 +75,7 @@ namespace RH.Clio.Snapshots.Blobs
             queue.Complete();
         }
 
-        private async Task UploadDocumentsAsync(BufferBlock<string> queue, CancellationToken cancellationToken)
+        private async Task UploadDocumentsAsync(ISourceBlock<string> queue, CancellationToken cancellationToken)
         {
             while (await queue.OutputAvailableAsync(cancellationToken))
             {

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Dataflow;
 
 namespace RH.Clio.Snapshots.IO
 {
@@ -20,9 +21,18 @@ namespace RH.Clio.Snapshots.IO
             _leaveOpen = leaveOpen;
         }
 
-        protected override IAsyncEnumerator<string> GetDocumentsAsync(CancellationToken cancellationToken = default)
+        protected override async Task ReceiveDocumentsAsync(ITargetBlock<string> queue, CancellationToken cancellationToken)
         {
-            return new StreamEnumerator(_snapshotReader, cancellationToken);
+            var documentEnumerator = new StreamEnumerator(_snapshotReader, cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            while (await documentEnumerator.MoveNextAsync())
+            {
+                await queue.SendAsync(documentEnumerator.Current, cancellationToken);
+            }
+
+            queue.Complete();
         }
 
         public override void Close()

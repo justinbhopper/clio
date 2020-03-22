@@ -1,31 +1,25 @@
-using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
+using System.Threading.Tasks.Dataflow;
 using Newtonsoft.Json.Linq;
 
 namespace RH.Clio.Snapshots
 {
     public abstract class StringSnapshotReader : ISnapshotReader
     {
-        public async IAsyncEnumerator<JObject> GetAsyncEnumerator(CancellationToken cancellationToken = default)
+        public async Task ReceiveDocumentsAsync(ITargetBlock<JObject> queue, CancellationToken cancellationToken)
         {
-            var enumerator = GetDocumentsAsync(cancellationToken);
-
-            try
+            var transformer = new TransformBlock<string, JObject>(JObject.Parse);
+            transformer.LinkTo(queue, new DataflowLinkOptions
             {
-                while (await enumerator.MoveNextAsync())
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
+                PropagateCompletion = true
+            });
 
-                    yield return JObject.Parse(enumerator.Current);
-                }
-            }
-            finally
-            {
-                await enumerator.DisposeAsync();
-            }
+            await ReceiveDocumentsAsync(transformer, cancellationToken);
+            await Task.WhenAll(transformer.Completion, queue.Completion);
         }
 
-        protected abstract IAsyncEnumerator<string> GetDocumentsAsync(CancellationToken cancellationToken = default);
+        protected abstract Task ReceiveDocumentsAsync(ITargetBlock<string> queue, CancellationToken cancellationToken);
 
         public virtual void Dispose()
         {

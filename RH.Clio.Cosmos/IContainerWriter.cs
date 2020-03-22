@@ -1,12 +1,12 @@
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Dataflow;
 using Newtonsoft.Json.Linq;
 
 namespace RH.Clio.Cosmos
 {
     public interface IContainerWriter
     {
-        Task RestoreAsync(IAsyncEnumerable<JObject> documents, CancellationToken cancellationToken = default);
+        Task RestoreAsync(IReceivableSourceBlock<JObject> documentsSource, CancellationToken cancellationToken = default);
     }
 }

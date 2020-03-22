@@ -60,9 +60,7 @@ namespace RH.Clio.Snapshots.IO
         public override async ValueTask DisposeAsync()
         {
             if (!_leaveOpen)
-            {
                 await _snapshotWriter.DisposeAsync();
-            }
         }
     }
 }

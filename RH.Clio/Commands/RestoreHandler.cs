@@ -1,7 +1,9 @@
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Dataflow;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json.Linq;
 using RH.Clio.Cosmos;
 
 namespace RH.Clio.Commands
@@ -30,12 +32,21 @@ namespace RH.Clio.Commands
 
             var containerWriter = new ConcurrentContainerWriter(destinationContainer, _loggerFactory.CreateLogger<ConcurrentContainerWriter>());
             containerWriter.DocumentInserted += (s, e) => request.OnDocumentInserted(e);
+            containerWriter.DocumentFailed += (s, e) => request.OnDocumentFailed(e);
             containerWriter.DocumentInserting += (s, e) => request.OnDocumentInserting(e);
             containerWriter.DocumentQueued += (s, e) => request.OnDocumentQueued(e);
             containerWriter.ThrottleWaitStarted += (s, e) => request.OnThrottleWaitStarted(e);
             containerWriter.ThrottleWaitFinished += (s, e) => request.OnThrottleWaitFinished(e);
 
-            await containerWriter.RestoreAsync(request.Source, cancellationToken);
+            var queue = new BufferBlock<JObject>(new DataflowBlockOptions
+            {
+                BoundedCapacity = 100 // TODO: make configurable
+            });
+
+            var producer = request.Source.ReceiveDocumentsAsync(queue, cancellationToken);
+            var consumer = containerWriter.RestoreAsync(queue, cancellationToken);
+
+            await Task.WhenAll(producer, consumer, queue.Completion);
         }
     }
 }
