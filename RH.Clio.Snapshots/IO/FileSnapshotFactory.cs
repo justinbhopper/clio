@@ -1,38 +1,38 @@
 using System.IO;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace RH.Clio.Snapshots.IO
 {
     public class FileSnapshotFactory : ISnapshotFactory
     {
-        private readonly string _snapshotPath;
-        private readonly string _changefeedPath;
+        private readonly string _filePath;
         private readonly Encoding _encoding;
 
-        public FileSnapshotFactory(string snapshotPath, string changefeedPath)
-            : this(snapshotPath, changefeedPath, Encoding.UTF8) { }
+        public FileSnapshotFactory(string filePath)
+            : this(filePath, Encoding.UTF8) { }
 
-        public FileSnapshotFactory(string snapshotPath, string changefeedPath, Encoding encoding)
+        public FileSnapshotFactory(string filePath, Encoding encoding)
         {
-            _snapshotPath = snapshotPath;
-            _changefeedPath = changefeedPath;
+            _filePath = filePath;
             _encoding = encoding;
         }
 
         public ISnapshotReader CreateReader()
         {
-            var snapshotStream = File.Open(_snapshotPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            var changeFeedStream = File.Open(_changefeedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var snapshotStream = File.Open(_filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             var snapshotStreamReader = new StreamReader(snapshotStream, _encoding);
-            var changeFeedStreamReader = new StreamReader(changeFeedStream, _encoding);
-            return new StreamSnapshotReader(snapshotStreamReader, changeFeedStreamReader, false);
+            return new StreamSnapshotReader(snapshotStreamReader, false);
         }
 
-        public ISnapshotHandle CreateWriter()
+        public Task<ISnapshotHandle> CreateWriterAsync(bool deleteIfExists, CancellationToken cancellationToken)
         {
-            var snapshotStream = File.Open(_snapshotPath, FileMode.Create, FileAccess.Write, FileShare.Read);
-            var changeFeedStream = File.Open(_changefeedPath, FileMode.Create, FileAccess.Write, FileShare.Read);
-            return new FileSnapshotWriter(snapshotStream, changeFeedStream, _encoding, false);
+            var fileMode = deleteIfExists ? FileMode.Create : FileMode.CreateNew;
+            var snapshotStream = File.Open(_filePath, fileMode, FileAccess.Write, FileShare.Read);
+            var handle = new FileSnapshotWriter(snapshotStream, _encoding, false);
+
+            return Task.FromResult<ISnapshotHandle>(handle);
         }
     }
 }

@@ -3,7 +3,7 @@ using Microsoft.Azure.Cosmos;
 
 namespace RH.Clio
 {
-    public class CosmosClientFactory
+    public class CosmosClientFactory : ICosmosClientFactory
     {
         private readonly string _host;
         private readonly string _authKey;

@@ -21,9 +21,9 @@ namespace RH.Clio
             _container = container;
         }
 
-        public async IAsyncEnumerable<JObject> GetDocumentsAsync(QueryDefinition query, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        public async IAsyncEnumerable<JObject> GetDocuments(QueryDefinition query, [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            await foreach (var document in _decorated.GetDocumentsAsync(new QueryDefinition(string.Empty), cancellationToken))
+            await foreach (var document in _decorated.GetDocuments(new QueryDefinition(string.Empty), cancellationToken))
             {
                 await _container.UpsertItemAsync(new Test(), cancellationToken: cancellationToken);
 

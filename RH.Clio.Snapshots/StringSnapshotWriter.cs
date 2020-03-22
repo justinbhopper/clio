@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -7,9 +9,9 @@ namespace RH.Clio.Snapshots
 {
     public abstract class StringSnapshotWriter : ISnapshotWriter
     {
-        protected abstract Task AppendSnapshotDocumentAsync(string document, CancellationToken cancellationToken);
+        protected abstract Task AppendDocumentsAsync(IAsyncEnumerable<string> documents, CancellationToken cancellationToken);
 
-        protected abstract Task AppendChangeFeedDocumentAsync(string document, CancellationToken cancellationToken);
+        protected abstract Task AppendDocumentsAsync(IEnumerable<string> documents, CancellationToken cancellationToken);
 
         public virtual void Close()
         {
@@ -18,18 +20,34 @@ namespace RH.Clio.Snapshots
 
         public abstract ValueTask DisposeAsync();
 
-        public async Task AppendSnapshotDocumentAsync(JObject document, CancellationToken cancellationToken)
+        public async Task AppendDocumentsAsync(IAsyncEnumerable<JObject> documents, CancellationToken cancellationToken)
         {
-            var serialized = Serialize(document);
-            if (!string.IsNullOrWhiteSpace(serialized))
-                await AppendSnapshotDocumentAsync(serialized, cancellationToken);
+            await AppendDocumentsAsync(SerializeDocuments(documents, cancellationToken), cancellationToken);
         }
 
-        public async Task AppendChangeFeedDocumentAsync(JObject document, CancellationToken cancellationToken)
+        public async Task AppendDocumentsAsync(IEnumerable<JObject> documents, CancellationToken cancellationToken)
         {
-            var serialized = Serialize(document);
-            if (!string.IsNullOrWhiteSpace(serialized))
-                await AppendChangeFeedDocumentAsync(serialized, cancellationToken);
+            await AppendDocumentsAsync(SerializeDocuments(documents), cancellationToken);
+        }
+
+        private async IAsyncEnumerable<string> SerializeDocuments(IAsyncEnumerable<JObject> documents, [EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await foreach (var document in documents.WithCancellation(cancellationToken))
+            {
+                var serialized = Serialize(document);
+                if (!string.IsNullOrWhiteSpace(serialized))
+                    yield return serialized;
+            }
+        }
+
+        private IEnumerable<string> SerializeDocuments(IEnumerable<JObject> documents)
+        {
+            foreach (var document in documents)
+            {
+                var serialized = Serialize(document);
+                if (!string.IsNullOrWhiteSpace(serialized))
+                    yield return serialized;
+            }
         }
 
         private static string Serialize(JObject document)

@@ -1,49 +1,89 @@
 using System;
-using System.IO;
+using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Dataflow;
 using Microsoft.Azure.Storage.Blob;
 
 namespace RH.Clio.Snapshots.Blobs
 {
     public class BlobSnapshotWriter : StringSnapshotWriter, ISnapshotHandle
     {
-        internal const string s_documentPrefix = "document";
-        internal const string s_changeFeedPrefix = "changefeed";
-
         private readonly CloudBlobContainer _container;
         private readonly Encoding _encoding;
-        private readonly string _documentPrefix;
-        private readonly string _changeFeedPrefix;
+        private readonly int _maxConcurrency;
         private readonly SemaphoreSlim _lock = new SemaphoreSlim(1, 1);
 
         private int _documentIndex;
-        private int _changeFeedIndex;
         private bool _initialized;
 
-        public BlobSnapshotWriter(CloudBlobContainer container, Encoding encoding, string rootPath)
+        public BlobSnapshotWriter(CloudBlobContainer container, Encoding encoding, int maxConcurrency)
         {
             _container = container;
             _encoding = encoding;
-            _documentPrefix = Path.Combine(rootPath, s_documentPrefix);
-            _changeFeedPrefix = Path.Combine(rootPath, s_changeFeedPrefix);
+            _maxConcurrency = maxConcurrency;
         }
 
-        protected override async Task AppendSnapshotDocumentAsync(string document, CancellationToken cancellationToken)
+        protected override async Task AppendDocumentsAsync(IAsyncEnumerable<string> documents, CancellationToken cancellationToken)
         {
             await InitializeAsync(cancellationToken);
 
-            var index = Interlocked.Increment(ref _documentIndex);
-            await UploadAsync(_documentPrefix + "-" + index, document, cancellationToken);
+            var queue = new BufferBlock<string>(new DataflowBlockOptions
+            {
+                BoundedCapacity = _maxConcurrency
+            });
+
+            var producer = QueueDocumentsAsync(queue, documents, cancellationToken);
+            var consumer = UploadDocumentsAsync(queue, cancellationToken);
+
+            await Task.WhenAll(producer, consumer, queue.Completion);
         }
 
-        protected override async Task AppendChangeFeedDocumentAsync(string document, CancellationToken cancellationToken)
+        protected override async Task AppendDocumentsAsync(IEnumerable<string> documents, CancellationToken cancellationToken)
         {
             await InitializeAsync(cancellationToken);
 
-            var index = Interlocked.Increment(ref _changeFeedIndex);
-            await UploadAsync(_changeFeedPrefix + "-" + index, document, cancellationToken);
+            var queue = new BufferBlock<string>(new DataflowBlockOptions
+            {
+                BoundedCapacity = _maxConcurrency
+            });
+
+            var producer = QueueDocumentsAsync(queue, documents, cancellationToken);
+            var consumer = UploadDocumentsAsync(queue, cancellationToken);
+
+            await Task.WhenAll(producer, consumer, queue.Completion);
+        }
+
+        private async Task QueueDocumentsAsync(BufferBlock<string> queue, IAsyncEnumerable<string> documents, CancellationToken cancellationToken)
+        {
+            await foreach (var document in documents.WithCancellation(cancellationToken))
+            {
+                await queue.SendAsync(document, cancellationToken);
+            }
+
+            queue.Complete();
+        }
+
+        private async Task QueueDocumentsAsync(BufferBlock<string> queue, IEnumerable<string> documents, CancellationToken cancellationToken)
+        {
+            foreach (var document in documents)
+            {
+                await queue.SendAsync(document, cancellationToken);
+            }
+
+            queue.Complete();
+        }
+
+        private async Task UploadDocumentsAsync(BufferBlock<string> queue, CancellationToken cancellationToken)
+        {
+            while (await queue.OutputAvailableAsync(cancellationToken))
+            {
+                var document = await queue.ReceiveAsync(cancellationToken);
+
+                var index = Interlocked.Increment(ref _documentIndex);
+                await UploadAsync(index.ToString(), document, cancellationToken);
+            }
         }
 
         public async Task DeleteAsync(CancellationToken cancellationToken)

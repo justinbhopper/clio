@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
@@ -7,9 +8,9 @@ namespace RH.Clio.Snapshots
 {
     public interface ISnapshotWriter : IAsyncDisposable
     {
-        Task AppendSnapshotDocumentAsync(JObject document, CancellationToken cancellationToken);
+        Task AppendDocumentsAsync(IAsyncEnumerable<JObject> documents, CancellationToken cancellationToken);
 
-        Task AppendChangeFeedDocumentAsync(JObject document, CancellationToken cancellationToken);
+        Task AppendDocumentsAsync(IEnumerable<JObject> documents, CancellationToken cancellationToken);
 
         void Close()
         {

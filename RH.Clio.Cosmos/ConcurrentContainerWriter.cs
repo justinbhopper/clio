@@ -28,19 +28,15 @@ namespace RH.Clio.Cosmos
         }
 
         public event EventHandler<DocumentEventArgs>? ThrottleWaitStarted;
-
         public event EventHandler<DocumentEventArgs>? ThrottleWaitFinished;
-
         public event EventHandler<DocumentEventArgs>? DocumentQueued;
-
         public event EventHandler<DocumentEventArgs>? DocumentInserting;
-
         public event EventHandler<DocumentEventArgs>? DocumentInserted;
-
         public event EventHandler<DocumentEventArgs>? DocumentFailed;
 
         public async Task RestoreAsync(IAsyncEnumerable<JObject> documents, CancellationToken cancellationToken = default)
         {
+            using var throttleSignal = new CountdownEvent(0);
             var container = await _destination.ReadContainerAsync(cancellationToken: cancellationToken);
             var partitionKeyPath = container.Resource.PartitionKeyPath?
                 .Split('/')
@@ -60,6 +56,7 @@ namespace RH.Clio.Cosmos
                     _logger.LogTrace("Waiting {waitTimeMs} before retrying...", item.wait.TotalMilliseconds);
                     await Task.Delay(item.wait);
                     ThrottleWaitFinished?.Invoke(this, item.document);
+                    throttleSignal.Signal();
                     return item.document;
                 },
                 new ExecutionDataflowBlockOptions
@@ -82,7 +79,7 @@ namespace RH.Clio.Cosmos
 
             throttledQueue.LinkTo(upsertBlock, new DataflowLinkOptions
             {
-                PropagateCompletion = false
+                PropagateCompletion = true
             });
 
             await foreach (var document in documents.WithCancellation(cancellationToken))
@@ -96,12 +93,11 @@ namespace RH.Clio.Cosmos
                 _logger.LogTrace("Queued up {documentCount} documents...", upsertBlock.InputCount);
             }
 
-            // Notify completion of all input
-            throttledQueue.Complete(); // Is this right? Do we know we've completed throttle queuing yet?
-            upsertBlock.Complete();
+            throttleSignal.Wait();
 
-            // Wait for all upserts to complete
-            await Task.WhenAll(throttledQueue.Completion, upsertBlock.Completion);
+            // Notify completion of all input
+            upsertBlock.Complete();
+            await upsertBlock.Completion;
 
             async Task Upsert(DocumentItem item)
             {
@@ -133,7 +129,8 @@ namespace RH.Clio.Cosmos
                     {
                         if (!response.Headers.TryGetValue("x-ms-retry-after-ms", out var waitTimeMs) || string.IsNullOrEmpty(waitTimeMs))
                             waitTimeMs = "100";
-                        
+
+                        throttleSignal.AddCount();
                         await throttledQueue.SendAsync((TimeSpan.FromMilliseconds(double.Parse(waitTimeMs)), item));
                     }
                 }

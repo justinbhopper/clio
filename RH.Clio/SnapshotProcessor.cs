@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
@@ -96,10 +98,7 @@ namespace RH.Clio
 
         private async Task SaveContainerFeedAsync()
         {
-            await foreach (var document in _containerReader.GetDocumentsAsync(_documentsQuery, _cancelSource.Token))
-            {
-                await _snapshot.AppendSnapshotDocumentAsync(document, _cancelSource.Token);
-            }
+            await _snapshot.AppendDocumentsAsync(_containerReader.GetDocuments(_documentsQuery, _cancelSource.Token), _cancelSource.Token);
 
             await _changeFeedProcessor.StopAsync();
             await CloseSnapshotAsync();
@@ -117,10 +116,7 @@ namespace RH.Clio
 
         private async Task OnChangesAsync(IReadOnlyCollection<dynamic> changes, CancellationToken cancellationToken)
         {
-            foreach (var item in changes)
-            {
-                await _snapshot.AppendChangeFeedDocumentAsync(JObject.FromObject(item), cancellationToken);
-            }
+            await _snapshot.AppendDocumentsAsync(changes.Select(JObject.FromObject), cancellationToken);
         }
     }
 }

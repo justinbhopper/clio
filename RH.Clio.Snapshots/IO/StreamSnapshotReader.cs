@@ -9,51 +9,43 @@ namespace RH.Clio.Snapshots.IO
     public class StreamSnapshotReader : StringSnapshotReader
     {
         private readonly StreamReader _snapshotReader;
-        private readonly StreamReader _changeFeedReader;
         private readonly bool _leaveOpen;
 
-        public StreamSnapshotReader(StreamReader snapshotReader, StreamReader changeFeedReader)
-            : this(snapshotReader, changeFeedReader, false) { }
+        public StreamSnapshotReader(StreamReader snapshotReader)
+            : this(snapshotReader, false) { }
 
-        public StreamSnapshotReader(StreamReader snapshotReader, StreamReader changeFeedReader, bool leaveOpen)
+        public StreamSnapshotReader(StreamReader snapshotReader, bool leaveOpen)
         {
             _snapshotReader = snapshotReader ?? throw new ArgumentNullException(nameof(snapshotReader));
-            _changeFeedReader = changeFeedReader ?? throw new ArgumentNullException(nameof(changeFeedReader));
             _leaveOpen = leaveOpen;
         }
 
         protected override IAsyncEnumerator<string> GetDocumentsAsync(CancellationToken cancellationToken = default)
         {
-            return new DualStreamEnumerator(_snapshotReader, _changeFeedReader, cancellationToken);
+            return new StreamEnumerator(_snapshotReader, cancellationToken);
         }
 
         public override void Close()
         {
             _snapshotReader.Close();
-            _changeFeedReader.Close();
         }
 
         public override void Dispose()
         {
-            if (_leaveOpen)
-                return;
-
-            _snapshotReader.Dispose();
-            _changeFeedReader.Dispose();
+            if (!_leaveOpen)
+                _snapshotReader.Dispose();
         }
 
-        private class DualStreamEnumerator : IAsyncEnumerator<string>, IDisposable
+        private class StreamEnumerator : IAsyncEnumerator<string>
         {
             private readonly StreamReader _snapshotReader;
-            private readonly StreamReader _changeFeedReader;
             private readonly CancellationToken _cancellationToken;
 
             private string? _current;
 
-            public DualStreamEnumerator(StreamReader snapshotReader, StreamReader changeFeedReader, CancellationToken cancellationToken)
+            public StreamEnumerator(StreamReader snapshotReader, CancellationToken cancellationToken)
             {
                 _snapshotReader = snapshotReader;
-                _changeFeedReader = changeFeedReader;
                 _cancellationToken = cancellationToken;
             }
 
@@ -67,6 +59,7 @@ namespace RH.Clio.Snapshots.IO
                     return _current;
                 }
             }
+
             public async ValueTask<bool> MoveNextAsync()
             {
                 _cancellationToken.ThrowIfCancellationRequested();
@@ -85,31 +78,12 @@ namespace RH.Clio.Snapshots.IO
                     }
                 }
 
-                while (!_changeFeedReader.EndOfStream)
-                {
-                    _cancellationToken.ThrowIfCancellationRequested();
-
-                    var line = await _changeFeedReader.ReadLineAsync();
-                    if (!string.IsNullOrWhiteSpace(line))
-                    {
-                        _current = line;
-                        return true;
-                    }
-                }
-
                 return false;
             }
 
             public ValueTask DisposeAsync()
             {
-                Dispose();
                 return new ValueTask(Task.CompletedTask);
-            }
-
-            public void Dispose()
-            {
-                _snapshotReader.Dispose();
-                _changeFeedReader.Dispose();
             }
         }
     }

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -8,37 +9,33 @@ namespace RH.Clio.Snapshots.IO
 {
     public class FileSnapshotWriter : ISnapshotHandle
     {
-        private readonly StreamSnapshotWriter _snapshotWriter;
+        private readonly ISnapshotWriter _snapshotWriter;
         private readonly FileStream _snapshotStream;
-        private readonly FileStream _changeFeedStream;
 
-        public FileSnapshotWriter(FileStream snapshotStream, FileStream changeFeedStream, Encoding encoding)
-            : this(snapshotStream, changeFeedStream, encoding, false) { }
+        public FileSnapshotWriter(FileStream snapshotStream, Encoding encoding)
+            : this(snapshotStream, encoding, false) { }
 
-        public FileSnapshotWriter(FileStream snapshotStream, FileStream changeFeedStream, Encoding encoding, bool leaveOpen)
+        public FileSnapshotWriter(FileStream snapshotStream, Encoding encoding, bool leaveOpen)
         {
             _snapshotStream = snapshotStream;
-            _changeFeedStream = changeFeedStream;
 
             var snapshotStreamWriter = new StreamWriter(_snapshotStream, encoding);
-            var changeFeedStreamWriter = new StreamWriter(_changeFeedStream, encoding);
-            _snapshotWriter = new StreamSnapshotWriter(snapshotStreamWriter, changeFeedStreamWriter, leaveOpen);
+            _snapshotWriter = new StreamSnapshotWriter(snapshotStreamWriter, leaveOpen);
         }
 
-        public Task AppendSnapshotDocumentAsync(JObject document, CancellationToken cancellationToken)
+        public Task AppendDocumentsAsync(IAsyncEnumerable<JObject> documents, CancellationToken cancellationToken)
         {
-            return _snapshotWriter.AppendSnapshotDocumentAsync(document, cancellationToken);
+            return _snapshotWriter.AppendDocumentsAsync(documents, cancellationToken);
         }
 
-        public Task AppendChangeFeedDocumentAsync(JObject document, CancellationToken cancellationToken)
+        public Task AppendDocumentsAsync(IEnumerable<JObject> documents, CancellationToken cancellationToken)
         {
-            return _snapshotWriter.AppendSnapshotDocumentAsync(document, cancellationToken);
+            return _snapshotWriter.AppendDocumentsAsync(documents, cancellationToken);
         }
 
         public Task DeleteAsync(CancellationToken cancellationToken)
         {
             File.Delete(_snapshotStream.Name);
-            File.Delete(_changeFeedStream.Name);
 
             return Task.CompletedTask;
         }

@@ -7,6 +7,6 @@ namespace RH.Clio.Cosmos
 {
     public interface IContainerReader
     {
-        IAsyncEnumerable<JObject> GetDocumentsAsync(QueryDefinition query, CancellationToken cancellationToken = default);
+        IAsyncEnumerable<JObject> GetDocuments(QueryDefinition query, CancellationToken cancellationToken = default);
     }
 }

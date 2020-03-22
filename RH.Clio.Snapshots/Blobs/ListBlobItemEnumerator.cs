@@ -16,13 +16,19 @@ namespace RH.Clio.Snapshots.Blobs
         private IListBlobItem? _current;
         private bool _initialized;
 
+        public ListBlobItemEnumerator(CloudBlobContainer container)
+            : this(container, string.Empty)
+        {
+            _container = container;
+        }
+
         public ListBlobItemEnumerator(CloudBlobContainer container, string prefix)
         {
             _container = container;
             _prefix = prefix;
         }
 
-        public bool HasMoreResults => _page?.Count > 0 || !(_continuationToken is null);
+        public bool HasMoreResults => _page == null || _page.Count > 0 || !(_continuationToken is null);
 
         public IListBlobItem Current
         {
@@ -41,11 +47,12 @@ namespace RH.Clio.Snapshots.Blobs
 
             _current = null;
 
+            // Last page has been exhausted, no more results
+            if (_page != null && _page.Count == 0 && _continuationToken is null)
+                return false;
+
             if (_page == null || _page.Count <= 0)
             {
-                if (_continuationToken is null)
-                    return false;
-
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var page = string.IsNullOrEmpty(_prefix)

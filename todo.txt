@@ -1,0 +1,6 @@
+- IAsyncEnumerator is bad for reading because it does not support concurrent reads.  Change to some kind of producer?
+- Create Cosmos snapshot implementation too
+- Add support to throttle cosmos reader based on percentage of current throughput
+- Add support to increase throughput during reading or writing process
+
+- Write results to Job object in apollo, including progress details such as time elapsed and total documents

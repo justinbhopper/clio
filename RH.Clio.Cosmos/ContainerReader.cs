@@ -20,7 +20,7 @@ namespace RH.Clio.Cosmos
             _container = container;
         }
 
-        public async IAsyncEnumerable<JObject> GetDocumentsAsync(QueryDefinition query, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        public async IAsyncEnumerable<JObject> GetDocuments(QueryDefinition query, [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             string? continuationToken = null;
 

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,39 +12,33 @@ namespace RH.Clio.Snapshots.Blobs
     {
         private readonly CloudBlobContainer _container;
         private readonly Encoding _encoding;
-        private readonly string _rootPath;
 
-        public BlobSnapshotReader(CloudBlobContainer container, Encoding encoding, string rootPath)
+        public BlobSnapshotReader(CloudBlobContainer container, Encoding encoding)
         {
             _container = container;
             _encoding = encoding;
-            _rootPath = rootPath;
         }
 
         protected override IAsyncEnumerator<string> GetDocumentsAsync(CancellationToken cancellationToken = default)
         {
-            var documentsEnumerator = new ListBlobItemEnumerator(_container, Path.Combine(_rootPath, BlobSnapshotWriter.s_documentPrefix));
-            var changeFeedEnumerator = new ListBlobItemEnumerator(_container, Path.Combine(_rootPath, BlobSnapshotWriter.s_changeFeedPrefix));
-            return new DualBlobListEnumerator(documentsEnumerator, changeFeedEnumerator, _encoding, cancellationToken);
+            var documentsEnumerator = new ListBlobItemEnumerator(_container);
+            return new BlobListEnumerator(documentsEnumerator, _encoding, cancellationToken);
         }
 
-        private class DualBlobListEnumerator : IAsyncEnumerator<string>
+        private class BlobListEnumerator : IAsyncEnumerator<string>
         {
             private readonly ListBlobItemEnumerator _documents;
-            private readonly ListBlobItemEnumerator _changeFeeds;
             private readonly Encoding _encoding;
             private readonly CancellationToken _cancellationToken;
 
             private string? _current;
 
-            public DualBlobListEnumerator(
+            public BlobListEnumerator(
                 ListBlobItemEnumerator documents,
-                ListBlobItemEnumerator changeFeeds,
                 Encoding encoding,
                 CancellationToken cancellationToken)
             {
                 _documents = documents;
-                _changeFeeds = changeFeeds;
                 _encoding = encoding;
                 _cancellationToken = cancellationToken;
             }
@@ -74,21 +67,12 @@ namespace RH.Clio.Snapshots.Blobs
                         return true;
                 }
 
-                while (_changeFeeds.HasMoreResults)
-                {
-                    _cancellationToken.ThrowIfCancellationRequested();
-
-                    if (await _changeFeeds.MoveNextAsync() && await TrySetCurrentAsync(_changeFeeds.Current))
-                        return true;
-                }
-
                 return false;
             }
 
             public async ValueTask DisposeAsync()
             {
                 await _documents.DisposeAsync();
-                await _changeFeeds.DisposeAsync();
             }
 
             private async Task<bool> TrySetCurrentAsync(IListBlobItem item)

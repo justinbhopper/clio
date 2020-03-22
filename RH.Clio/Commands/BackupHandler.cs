@@ -9,7 +9,7 @@ namespace RH.Clio.Commands
     {
         private readonly CosmosClient _cosmosClient;
 
-        public BackupHandler(CosmosClientFactory clientFactory)
+        public BackupHandler(ICosmosClientFactory clientFactory)
         {
             _cosmosClient = clientFactory.CreateClient(false);
         }
@@ -21,8 +21,8 @@ namespace RH.Clio.Commands
 
             var sourceContainer = database.GetContainer(request.ContainerName);
 
-            // Should we own the lease container?  Leaving it around sometimes seems to cause issues with future runs...
-            await database.GetContainer(leaseContainerName).DeleteContainerIfExistsAsync();
+            // TODO: Should we own the lease container?  Leaving it around sometimes seems to cause issues with future runs...
+            await database.GetContainer(leaseContainerName).DeleteContainerIfExistsAsync(cancellationToken);
 
             try
             {
@@ -32,12 +32,12 @@ namespace RH.Clio.Commands
                 var containerReader = new ContainerReader(sourceContainer);
                 var processor = new SnapshotProcessor(sourceContainer, leaseContainer, request.Destination, request.DocumentsQuery, containerReader);
 
-                await processor.StartAsync();
-                await processor.WaitAsync();
+                await processor.StartAsync(cancellationToken);
+                await processor.WaitAsync(cancellationToken);
             }
             finally
             {
-                await database.GetContainer(leaseContainerName).DeleteContainerIfExistsAsync();
+                await database.GetContainer(leaseContainerName).DeleteContainerIfExistsAsync(cancellationToken);
             }
         }
     }

@@ -11,7 +11,7 @@ namespace RH.Clio.Commands
         private readonly CosmosClient _cosmosClient;
         private readonly ILoggerFactory _loggerFactory;
 
-        public RestoreHandler(CosmosClientFactory clientFactory, ILoggerFactory loggerFactory)
+        public RestoreHandler(ICosmosClientFactory clientFactory, ILoggerFactory loggerFactory)
         {
             _cosmosClient = clientFactory.CreateClient(true);
             _loggerFactory = loggerFactory;
@@ -23,19 +23,19 @@ namespace RH.Clio.Commands
             var containerConfig = request.ContainerConfiguration;
 
             if (request.DropContainerIfExists)
-                await database.GetContainer(containerConfig.Name).DeleteContainerIfExistsAsync();
+                await database.GetContainer(containerConfig.Name).DeleteContainerIfExistsAsync(cancellationToken);
 
             var destinationContainerProperties = new ContainerProperties(containerConfig.Name, containerConfig.PartitionKeyPath);
-            var destinationContainer = await database.CreateContainerIfNotExistsAsync(destinationContainerProperties, containerConfig.Throughput);
-            var containerWriter = new ConcurrentContainerWriter(destinationContainer, _loggerFactory.CreateLogger<ConcurrentContainerWriter>());
+            var destinationContainer = await database.CreateContainerAsync(destinationContainerProperties, containerConfig.Throughput, cancellationToken: cancellationToken);
 
+            var containerWriter = new ConcurrentContainerWriter(destinationContainer, _loggerFactory.CreateLogger<ConcurrentContainerWriter>());
             containerWriter.DocumentInserted += (s, e) => request.OnDocumentInserted(e);
             containerWriter.DocumentInserting += (s, e) => request.OnDocumentInserting(e);
             containerWriter.DocumentQueued += (s, e) => request.OnDocumentQueued(e);
             containerWriter.ThrottleWaitStarted += (s, e) => request.OnThrottleWaitStarted(e);
             containerWriter.ThrottleWaitFinished += (s, e) => request.OnThrottleWaitFinished(e);
 
-            await containerWriter.RestoreAsync(request.Source);
+            await containerWriter.RestoreAsync(request.Source, cancellationToken);
         }
     }
 }

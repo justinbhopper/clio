@@ -1,8 +1,6 @@
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Storage.Auth;
@@ -22,12 +20,11 @@ namespace RH.Clio
     public class Program
     {
         private const string s_snapshotPath = @"f:\snapshot.json";
-        private const string s_changefeedPath = @"f:\changefeed.json";
         private const string s_host = "https://localhost:8081";
         private const string s_authKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
         private const string s_blobAccountName = "rhapollodevelopment";
-        private const string s_blobKey = "oxrOM83h3f8OUu3AmhbtCxX+/ykSS+SJgua6+8IccLoWxxwNyIV2MgQMEM7+hBNyQ/6XQtjTcbOPMz0ywawEWA==";
-        private const string s_blobEndpoint = "core.windows.net";
+        private const string s_blobKey = "7TY7CABaQtLXHunAnK4xkCxN7IEf/W/gXnVx3TrFFZ5pStlIrAr2MyKrmZeVTIS6/W2wzvV/WlAafVSz4hIxPw==";
+        private const string s_blobContainer = "https://rhapollodevelopment.blob.core.windows.net/backup-test";
 
         public static async Task Main()
         {
@@ -45,9 +42,10 @@ namespace RH.Clio
                         .SetMinimumLevel(LogLevel.Trace);
                 })
                 .AddSingleton<ILoggerFactory>(services => new SerilogLoggerFactory(seriLogger, true))
-                .AddTransient<CosmosClientFactory>(sp => new CosmosClientFactory(s_host, s_authKey))
+                .AddTransient<ICosmosClientFactory>(sp => new CosmosClientFactory(s_host, s_authKey))
                 .AddTransient<BackupHandler>()
                 .AddTransient<RestoreHandler>()
+                .AddTransient<ConsoleSnapshotManager>()
                 .BuildServiceProvider();
 
             var loggerFactory = services.GetRequiredService<ILoggerFactory>();
@@ -55,19 +53,16 @@ namespace RH.Clio
             var databaseName = "TestDb";
             var sourceContainerName = "Conditions";
             var destinationContainerName = "Restored";
-            var query = new QueryDefinition("select * from root r where r.IsHistory = false");
+            var query = new QueryDefinition("select * from root r");
 
-            var fileSnapshotFactory = new FileSnapshotFactory(s_snapshotPath, s_changefeedPath);
+            var fileSnapshotFactory = new FileSnapshotFactory(s_snapshotPath);
 
-            //var blobContainer = new CloudBlobContainer(new Uri(s_blobEndpoint), new StorageCredentials(s_blobAccountName, s_blobKey));
-            //var blobSnapshotFactory = new BlobSnapshotFactory(blobContainer, databaseName, sourceContainerName);
+            var blobContainer = new CloudBlobContainer(new Uri(s_blobContainer), new StorageCredentials(s_blobAccountName, s_blobKey));
+            var blobSnapshotFactory = new BlobSnapshotFactory(blobContainer, 100);
 
-            ISnapshotFactory snapshotFactory = fileSnapshotFactory;
+            ISnapshotFactory snapshotFactory = blobSnapshotFactory;
 
-            var logger = loggerFactory.CreateLogger<Program>();
-            var stopwatch = new Stopwatch();
-
-            var sourceContainerDetails = await services.GetRequiredService<CosmosClientFactory>()
+            var sourceContainerDetails = await services.GetRequiredService<ICosmosClientFactory>()
                 .CreateClient(false)
                 .GetDatabase(databaseName)
                 .GetContainer(sourceContainerName)
@@ -75,36 +70,10 @@ namespace RH.Clio
 
             var restoreConfig = new ContainerConfiguration(destinationContainerName, sourceContainerDetails.Resource.PartitionKeyPath, 400);
 
-            stopwatch.Start();
-            logger.LogInformation("Taking snapshot...");
+            var manager = services.GetRequiredService<ConsoleSnapshotManager>();
 
-            await using (var snapshot = snapshotFactory.CreateWriter())
-            {
-                var request = new BackupRequest(databaseName, sourceContainerName, snapshot, query);
-                await services.GetRequiredService<BackupHandler>().Handle(request, CancellationToken.None);
-            }
-
-            logger.LogInformation("Snapshot took {timeMs}ms to complete.", stopwatch.ElapsedMilliseconds);
-
-            stopwatch.Restart();
-            logger.LogInformation("Restoring snapshot ({throughput} throughput)...", restoreConfig.Throughput);
-
-            using (var snapshot = snapshotFactory.CreateReader())
-            {
-                var request = new RestoreRequest(databaseName, restoreConfig, snapshot)
-                {
-                    DropContainerIfExists = true
-                };
-
-                var documentWriteLogger = new DocumentWriteLogger(Console.CursorTop);
-                request.DocumentInserted += (s, e) => documentWriteLogger.OnDocumentInserted(e.CorrelationId);
-                request.DocumentInserting += (s, e) => documentWriteLogger.OnDocumentInserting();
-                request.DocumentQueued += (s, e) => documentWriteLogger.OnDocumentQueued(e.CorrelationId);
-                request.ThrottleWaitStarted += (s, e) => documentWriteLogger.OnThrottleStarted();
-                request.ThrottleWaitFinished += (s, e) => documentWriteLogger.OnThrottleFinished();
-
-                await services.GetRequiredService<RestoreHandler>().Handle(request, CancellationToken.None);
-            }
+            //await manager.BackupAsync(databaseName, sourceContainerName, query, snapshotFactory);
+            await manager.RestoreAsync(databaseName, restoreConfig, snapshotFactory, true);
 
             Console.WriteLine();
             Console.WriteLine("Press any key to exit...");
