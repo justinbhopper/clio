@@ -58,7 +58,7 @@ namespace RH.Clio
             var fileSnapshotFactory = new FileSnapshotFactory(s_snapshotPath);
 
             var blobContainer = new CloudBlobContainer(new Uri(s_blobContainer), new StorageCredentials(s_blobAccountName, s_blobKey));
-            var blobSnapshotFactory = new BlobSnapshotFactory(blobContainer, 100);
+            var blobSnapshotFactory = new BlobSnapshotFactory(blobContainer, 200);
 
             ISnapshotFactory snapshotFactory = blobSnapshotFactory;
 

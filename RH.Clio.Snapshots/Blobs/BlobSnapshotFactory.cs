@@ -31,7 +31,7 @@ namespace RH.Clio.Snapshots.Blobs
 
         public ISnapshotReader CreateReader()
         {
-            return new BlobSnapshotReader(_container, _encoding);
+            return new BlobSnapshotReader(_container, _encoding, _maxConcurrency);
         }
 
         public async Task<ISnapshotHandle> CreateWriterAsync(bool deleteIfExists, CancellationToken cancellationToken)

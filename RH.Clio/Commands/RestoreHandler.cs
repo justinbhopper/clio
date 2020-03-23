@@ -40,7 +40,7 @@ namespace RH.Clio.Commands
 
             var queue = new BufferBlock<JObject>(new DataflowBlockOptions
             {
-                BoundedCapacity = 100 // TODO: make configurable
+                BoundedCapacity = 100
             });
 
             var producer = request.Source.ReceiveDocumentsAsync(queue, cancellationToken);
