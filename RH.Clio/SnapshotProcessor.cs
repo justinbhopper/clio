@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Dataflow;
 using Microsoft.Azure.Cosmos;
 using Newtonsoft.Json.Linq;
 using RH.Clio.Cosmos;
@@ -98,7 +98,12 @@ namespace RH.Clio
 
         private async Task SaveContainerFeedAsync()
         {
-            await _snapshot.AppendDocumentsAsync(_containerReader.GetDocuments(_documentsQuery, _cancelSource.Token), _cancelSource.Token);
+            var buffer = new BufferBlock<JObject>();
+
+            var producer = _containerReader.ReadDocumentsAsync(buffer, _documentsQuery, _cancelSource.Token);
+            var consumer = _snapshot.AppendDocumentsAsync(buffer, _cancelSource.Token);
+
+            await Task.WhenAll(producer, consumer, buffer.Completion);
 
             await _changeFeedProcessor.StopAsync();
             await CloseSnapshotAsync();

@@ -25,7 +25,7 @@ namespace RH.Clio.Snapshots.Blobs
             _maxConcurrency = maxConcurrency;
         }
 
-        protected override async Task AppendDocumentsAsync(IAsyncEnumerable<string> documents, CancellationToken cancellationToken)
+        protected override async Task AppendDocumentsAsync(IReceivableSourceBlock<string> documents, CancellationToken cancellationToken)
         {
             await InitializeAsync(cancellationToken);
 
@@ -55,10 +55,12 @@ namespace RH.Clio.Snapshots.Blobs
             await Task.WhenAll(producer, consumer, queue.Completion);
         }
 
-        private async Task QueueDocumentsAsync(ITargetBlock<string> queue, IAsyncEnumerable<string> documents, CancellationToken cancellationToken)
+        private async Task QueueDocumentsAsync(ITargetBlock<string> queue, IReceivableSourceBlock<string> documents, CancellationToken cancellationToken)
         {
-            await foreach (var document in documents.WithCancellation(cancellationToken))
+            while (await documents.OutputAvailableAsync(cancellationToken))
             {
+                var document = await documents.ReceiveAsync(cancellationToken);
+
                 await queue.SendAsync(document, cancellationToken);
             }
 

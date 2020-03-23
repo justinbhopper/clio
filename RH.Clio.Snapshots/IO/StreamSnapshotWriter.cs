@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Dataflow;
 
 namespace RH.Clio.Snapshots.IO
 {
@@ -20,11 +21,12 @@ namespace RH.Clio.Snapshots.IO
             _leaveOpen = leaveOpen;
         }
 
-        protected override async Task AppendDocumentsAsync(IAsyncEnumerable<string> documents, CancellationToken cancellationToken)
+        protected override async Task AppendDocumentsAsync(IReceivableSourceBlock<string> documents, CancellationToken cancellationToken)
         {
             // We do not support concurrent writes to streams, so just loop one at a time
-            await foreach (var document in documents.WithCancellation(cancellationToken))
+            while (await documents.OutputAvailableAsync(cancellationToken))
             {
+                var document = await documents.ReceiveAsync(cancellationToken);
                 await AppendDocumentAsync(document, cancellationToken);
             }
         }

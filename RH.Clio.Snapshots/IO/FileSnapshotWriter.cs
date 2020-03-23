@@ -3,6 +3,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Dataflow;
 using Newtonsoft.Json.Linq;
 
 namespace RH.Clio.Snapshots.IO
@@ -23,7 +24,7 @@ namespace RH.Clio.Snapshots.IO
             _snapshotWriter = new StreamSnapshotWriter(snapshotStreamWriter, leaveOpen);
         }
 
-        public Task AppendDocumentsAsync(IAsyncEnumerable<JObject> documents, CancellationToken cancellationToken)
+        public Task AppendDocumentsAsync(IReceivableSourceBlock<JObject> documents, CancellationToken cancellationToken)
         {
             return _snapshotWriter.AppendDocumentsAsync(documents, cancellationToken);
         }

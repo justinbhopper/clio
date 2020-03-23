@@ -1,10 +1,9 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Net;
-using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Dataflow;
 using Microsoft.Azure.Cosmos;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -20,7 +19,7 @@ namespace RH.Clio.Cosmos
             _container = container;
         }
 
-        public async IAsyncEnumerable<JObject> GetDocuments(QueryDefinition query, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        public async Task ReadDocumentsAsync(ITargetBlock<JObject> target, QueryDefinition query, CancellationToken cancellationToken = default)
         {
             string? continuationToken = null;
 
@@ -66,11 +65,13 @@ namespace RH.Clio.Cosmos
                         cancellationToken.ThrowIfCancellationRequested();
 
                         if (item.Type == JTokenType.Object && item is JObject document)
-                            yield return document;
+                            await target.SendAsync(document, cancellationToken);
                     }
                 }
             }
             while (!string.IsNullOrEmpty(continuationToken));
+
+            target.Complete();
         }
     }
 }
