@@ -15,43 +15,43 @@ namespace RH.Clio.Snapshots.Blobs
             .Handle<StorageException>(ex => ex.Message.Contains("Try operation later", StringComparison.InvariantCultureIgnoreCase))
             .WaitAndRetryForeverAsync(_ => TimeSpan.FromMilliseconds(200));
 
-        private readonly CloudBlobContainer _container;
+        private readonly CloudAppendBlob _target;
         private readonly Encoding _encoding;
         private readonly int _maxConcurrency;
 
-        public BlobSnapshotFactory(CloudBlobContainer container, int maxConcurrency)
-            : this(container, Encoding.UTF8, maxConcurrency) { }
+        public BlobSnapshotFactory(CloudAppendBlob target, int maxConcurrency)
+            : this(target, Encoding.UTF8, maxConcurrency) { }
 
-        public BlobSnapshotFactory(CloudBlobContainer container, Encoding encoding, int maxConcurrency)
+        public BlobSnapshotFactory(CloudAppendBlob target, Encoding encoding, int maxConcurrency)
         {
-            _container = container;
+            _target = target;
             _encoding = encoding;
             _maxConcurrency = maxConcurrency;
         }
 
         public ISnapshotReader CreateReader()
         {
-            return new BlobSnapshotReader(_container, _encoding, _maxConcurrency);
+            return new BlobSnapshotReader(_target, _encoding, _maxConcurrency);
         }
 
         public async Task<ISnapshotHandle> CreateWriterAsync(bool deleteIfExists, CancellationToken cancellationToken)
         {
             if (deleteIfExists)
             {
-                if (await _container.ExistsAsync(cancellationToken))
+                if (await _target.ExistsAsync(cancellationToken))
                 {
-                    await _container.DeleteAsync(cancellationToken);
+                    await _target.DeleteAsync(cancellationToken);
 
-                    // An exception can occur when trying to create a container still being deleted
-                    await s_createRetryPolicy.ExecuteAsync(_container.CreateAsync, cancellationToken);
+                    // An exception can occur when trying to create a blob still being deleted
+                    await s_createRetryPolicy.ExecuteAsync(_target.CreateOrReplaceAsync, cancellationToken);
                 }
             }
-            else
+            else if (!await _target.ExistsAsync(cancellationToken))
             {
-                await _container.CreateAsync(cancellationToken);
+                await _target.CreateOrReplaceAsync(cancellationToken);
             }
 
-            return new BlobSnapshotWriter(_container, _encoding, _maxConcurrency);
+            return new BlobSnapshotWriter(_target, _encoding, _maxConcurrency);
         }
     }
 }

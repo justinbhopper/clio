@@ -6,11 +6,10 @@ namespace RH.Clio.Commands
 {
     public class RestoreRequest : IRequest, IDocumentWriter
     {
-        public RestoreRequest(string databaseName, ContainerConfiguration containerConfig, ISnapshotReader source)
+        public RestoreRequest(ISnapshotReader source, IContainerWriter target)
         {
-            DatabaseName = databaseName;
-            ContainerConfiguration = containerConfig;
             Source = source;
+            Target = target;
         }
 
         public event EventHandler<DocumentEventArgs>? ThrottleWaitStarted;
@@ -20,13 +19,9 @@ namespace RH.Clio.Commands
         public event EventHandler<DocumentEventArgs>? DocumentInserted;
         public event EventHandler<DocumentEventArgs>? DocumentFailed;
 
-        public string DatabaseName { get; }
-
-        public ContainerConfiguration ContainerConfiguration { get; }
-
         public ISnapshotReader Source { get; }
 
-        public bool DropContainerIfExists { get; set; }
+        public IContainerWriter Target { get; }
 
         public void OnDocumentInserted(DocumentEventArgs e) => DocumentInserted?.Invoke(this, e);
         public void OnDocumentInserting(DocumentEventArgs e) => DocumentInserting?.Invoke(this, e);

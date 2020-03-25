@@ -1,6 +1,6 @@
-﻿using Microsoft.Azure.Cosmos;
+using Microsoft.Azure.Cosmos;
 
-namespace RH.Clio
+namespace RH.Clio.Cosmos
 {
     public interface ICosmosClientFactory
     {

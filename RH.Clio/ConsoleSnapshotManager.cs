@@ -14,35 +14,47 @@ namespace RH.Clio
     {
         private readonly BackupHandler _backupHandler;
         private readonly RestoreHandler _restoreHandler;
+        private readonly IContainerWriterFactory _containerWriterFactory;
         private readonly ILogger<ConsoleSnapshotManager> _logger;
 
         public ConsoleSnapshotManager(
             BackupHandler backupHandler,
             RestoreHandler restoreHandler,
+            IContainerWriterFactory containerWriterFactory,
             ILogger<ConsoleSnapshotManager> logger)
         {
             _backupHandler = backupHandler;
             _restoreHandler = restoreHandler;
+            _containerWriterFactory = containerWriterFactory;
             _logger = logger;
         }
 
-        public async Task BackupAsync(string databaseName, string containerName, QueryDefinition query, ISnapshotFactory snapshotFactory)
+        public async Task BackupAsync(
+            string databaseName,
+            string containerName,
+            QueryDefinition query,
+            ISnapshotFactory snapshotFactory,
+            CancellationToken cancellationToken = default)
         {
             var stopwatch = new Stopwatch();
 
             _logger.LogInformation("Taking snapshot...");
             stopwatch.Start();
 
-            await using (var snapshot = await snapshotFactory.CreateWriterAsync(true, CancellationToken.None))
+            await using (var snapshot = await snapshotFactory.CreateWriterAsync(true, cancellationToken))
             {
                 var request = new BackupRequest(databaseName, containerName, snapshot, query);
-                await _backupHandler.Handle(request, CancellationToken.None);
+                await _backupHandler.Handle(request, cancellationToken);
             }
 
             _logger.LogInformation("Snapshot took {timeMs}ms to complete.", stopwatch.ElapsedMilliseconds);
         }
 
-        public async Task RestoreAsync(string databaseName, ContainerConfiguration restoreConfig, ISnapshotFactory snapshotFactory, bool allowReplace)
+        public async Task RestoreAsync(
+            ContainerConfiguration restoreConfig,
+            ISnapshotFactory snapshotFactory,
+            bool allowReplace,
+            CancellationToken cancellationToken = default)
         {
             var stopwatch = new Stopwatch();
 
@@ -51,10 +63,9 @@ namespace RH.Clio
 
             using (var snapshot = snapshotFactory.CreateReader())
             {
-                var request = new RestoreRequest(databaseName, restoreConfig, snapshot)
-                {
-                    DropContainerIfExists = allowReplace
-                };
+                var target = await _containerWriterFactory.CreateWriterAsync(restoreConfig, allowReplace, cancellationToken);
+
+                var request = new RestoreRequest(snapshot, target);
 
                 var documentWriteLogger = new DocumentWriteLogger(Console.CursorTop);
                 request.DocumentInserted += (s, e) => documentWriteLogger.OnDocumentInserted(e.CorrelationId);
@@ -63,7 +74,7 @@ namespace RH.Clio
                 request.ThrottleWaitStarted += (s, e) => documentWriteLogger.OnThrottleStarted();
                 request.ThrottleWaitFinished += (s, e) => documentWriteLogger.OnThrottleFinished();
 
-                await _restoreHandler.Handle(request, CancellationToken.None);
+                await _restoreHandler.Handle(request, cancellationToken);
             }
 
             _logger.LogInformation("Restore took {timeMs}ms to complete.", stopwatch.ElapsedMilliseconds);

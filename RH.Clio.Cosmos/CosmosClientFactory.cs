@@ -1,7 +1,7 @@
 using System;
 using Microsoft.Azure.Cosmos;
 
-namespace RH.Clio
+namespace RH.Clio.Cosmos
 {
     public class CosmosClientFactory : ICosmosClientFactory
     {

@@ -38,10 +38,7 @@ namespace RH.Clio.Commands
             containerWriter.ThrottleWaitStarted += (s, e) => request.OnThrottleWaitStarted(e);
             containerWriter.ThrottleWaitFinished += (s, e) => request.OnThrottleWaitFinished(e);
 
-            var queue = new BufferBlock<JObject>(new DataflowBlockOptions
-            {
-                BoundedCapacity = 100
-            });
+            var queue = new BufferBlock<JObject>();
 
             var producer = request.Source.ReceiveDocumentsAsync(queue, cancellationToken);
             var consumer = containerWriter.RestoreAsync(queue, cancellationToken);

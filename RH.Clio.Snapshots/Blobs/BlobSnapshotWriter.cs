@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,17 +11,16 @@ namespace RH.Clio.Snapshots.Blobs
 {
     public class BlobSnapshotWriter : StringSnapshotWriter, ISnapshotHandle
     {
-        private readonly CloudBlobContainer _container;
+        private readonly CloudAppendBlob _target;
         private readonly Encoding _encoding;
         private readonly int _maxConcurrency;
         private readonly SemaphoreSlim _lock = new SemaphoreSlim(1, 1);
 
-        private int _documentIndex;
         private bool _initialized;
 
-        public BlobSnapshotWriter(CloudBlobContainer container, Encoding encoding, int maxConcurrency)
+        public BlobSnapshotWriter(CloudAppendBlob target, Encoding encoding, int maxConcurrency)
         {
-            _container = container;
+            _target = target;
             _encoding = encoding;
             _maxConcurrency = maxConcurrency;
         }
@@ -82,15 +82,13 @@ namespace RH.Clio.Snapshots.Blobs
             while (await queue.OutputAvailableAsync(cancellationToken))
             {
                 var document = await queue.ReceiveAsync(cancellationToken);
-
-                var index = Interlocked.Increment(ref _documentIndex);
-                await UploadAsync(index.ToString(), document, cancellationToken);
+                await UploadAsync(document, cancellationToken);
             }
         }
 
         public async Task DeleteAsync(CancellationToken cancellationToken)
         {
-            await _container.DeleteIfExistsAsync(cancellationToken);
+            await _target.DeleteIfExistsAsync(cancellationToken);
 
             Close();
         }
@@ -102,12 +100,10 @@ namespace RH.Clio.Snapshots.Blobs
             return new ValueTask(Task.CompletedTask);
         }
 
-        private async Task UploadAsync(string blobName, string document, CancellationToken cancellationToken)
+        private async Task UploadAsync(string document, CancellationToken cancellationToken)
         {
-            var blob = _container.GetBlockBlobReference(blobName);
-
-            var bytes = _encoding.GetBytes(document);
-            await blob.UploadFromByteArrayAsync(bytes, 0, bytes.Length, cancellationToken);
+            using var stream = new MemoryStream(_encoding.GetBytes(document));
+            await _target.AppendBlockAsync(stream, null, cancellationToken);
         }
 
         private async Task InitializeAsync(CancellationToken cancellationToken)
@@ -123,7 +119,7 @@ namespace RH.Clio.Snapshots.Blobs
 
             try
             {
-                await _container.CreateIfNotExistsAsync(cancellationToken);
+                await _target.CreateOrReplaceAsync(cancellationToken);
                 _initialized = true;
             }
             finally

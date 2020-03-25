@@ -45,6 +45,7 @@ namespace RH.Clio
                 .AddTransient<ICosmosClientFactory>(sp => new CosmosClientFactory(s_host, s_authKey))
                 .AddTransient<BackupHandler>()
                 .AddTransient<RestoreHandler>()
+                .AddTransient<IContainerWriterFactory, ContainerWriterFactory>()
                 .AddTransient<ConsoleSnapshotManager>()
                 .BuildServiceProvider();
 
@@ -68,12 +69,12 @@ namespace RH.Clio
                 .GetContainer(sourceContainerName)
                 .ReadContainerAsync();
 
-            var restoreConfig = new ContainerConfiguration(destinationContainerName, sourceContainerDetails.Resource.PartitionKeyPath, 400);
+            var destinationConfig = new ContainerConfiguration(databaseName, destinationContainerName, sourceContainerDetails.Resource.PartitionKeyPath, 400);
 
             var manager = services.GetRequiredService<ConsoleSnapshotManager>();
 
             await manager.BackupAsync(databaseName, sourceContainerName, query, snapshotFactory);
-            await manager.RestoreAsync(databaseName, restoreConfig, snapshotFactory, true);
+            await manager.RestoreAsync(destinationConfig, snapshotFactory, true);
 
             Console.WriteLine();
             Console.WriteLine("Press any key to exit...");
